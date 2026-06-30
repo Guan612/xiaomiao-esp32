@@ -95,23 +95,23 @@ def draw_clock(disp, easydisp, now, ip, wifi_ok, weather_data,
         en_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         bf.draw_text(disp, en_week[now[6] % 7], 112, 58, 2, GRAY)
 
-    disp.hline(0, 96, 160, GRAY)
+    disp.hline(0, 90, 160, GRAY)
     if weather_data:
-        wx.draw_icon_for(disp, weather_data["cond"], 2, 103)
+        wx.draw_icon_for(disp, weather_data["cond"], 6, 101)
         cond_cn = wx.condition_cn(weather_data["cond"]) if easydisp else None
+        cond = cond_cn or weather_data["cond"]
+        high = weather_data.get("high") or weather_data.get("temp", "")
         if easydisp:
-            easydisp.text(weather_data["temp"][:5], 26, 103, YELLOW, size=12, show=False)
-            easydisp.text((cond_cn or weather_data["cond"])[:3], 73, 103, WHITE, size=12, show=False)
-            easydisp.text(weather_data["humidity"][:4], 120, 103, CYAN, size=12, show=False)
+            easydisp.text(cond[:3], 34, 100, WHITE, size=16, show=False)
+            easydisp.text(high[:4], 96, 100, YELLOW, size=16, show=False)
         else:
-            disp.text(weather_data["temp"][:5], 26, 108, YELLOW)
-            disp.text(weather_data["cond"][:6], 73, 108, WHITE)
-            disp.text(weather_data["humidity"][:4], 120, 108, CYAN)
+            disp.text(cond[:6], 34, 104, WHITE)
+            disp.text(high[:4], 96, 104, YELLOW)
     else:
         if easydisp:
-            easydisp.text("天气加载中…", 2, 108, GRAY, show=False)
+            easydisp.text("天气加载中…", 8, 104, GRAY, show=False)
         else:
-            disp.text("weather: loading...", 2, 108, GRAY)
+            disp.text("weather: loading...", 8, 108, GRAY)
 
     disp.show()
 
@@ -189,12 +189,18 @@ def draw_weather_page(disp, easydisp, ip, wifi_ok, weather_data,
         else:
             disp.text(weather_data["cond"][:15], 34, 30, WHITE)
 
-        temp = weather_data.get("temp", "")
+        temp = weather_data.get("high") or weather_data.get("temp", "")
+        low = weather_data.get("low", "")
         humidity = weather_data.get("humidity", "")
         wind = weather_data.get("wind", "")
-        disp.text(("T " + temp)[:19], 8, 56, YELLOW)
-        disp.text(("H " + humidity)[:19], 8, 72, CYAN)
-        disp.text(("W " + wind)[:19], 8, 88, GRAY)
+        if low:
+            disp.text(("HIGH " + temp)[:19], 8, 56, YELLOW)
+            disp.text(("LOW  " + low)[:19], 8, 72, CYAN)
+            disp.text(("H%s W%s" % (humidity, wind))[:19], 8, 88, GRAY)
+        else:
+            disp.text(("T " + temp)[:19], 8, 56, YELLOW)
+            disp.text(("H " + humidity)[:19], 8, 72, CYAN)
+            disp.text(("W " + wind)[:19], 8, 88, GRAY)
     else:
         if easydisp:
             easydisp.text("按A刷新天气", 24, 52, GRAY, show=False)

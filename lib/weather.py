@@ -1,8 +1,4 @@
-"""天气获取与图标绘制（wttr.in，免 key，自动 IP 定位）。
-
-wttr.in 一行格式：https://wttr.in/Beijing?format=%t|%C|%h|%w
-返回形如：+31°C|Patchy rain nearby|52%|←8km/h
-用 | 分隔：温度|状况|湿度|风速。无需 JSON 解析，省内存。
+"""天气获取与图标绘制（xfabe 天气接口，自动 IP 定位）。
 
 天气图标用程序化点阵绘制（含太阳/云/雨/雪/雷/雾等）。
 """
@@ -188,16 +184,16 @@ def _draw_bitmap(disp, bitmap, x, y):
 # 顺序敏感：越靠前越优先（雷雨包含雨，必须先判）。
 # 中文标签覆盖 16px GB2312 字库常用字，精简到 2~4 字适合小屏。
 _COND_RULES = [
-    (["thunder", "storm"],   THUNDER,   "雷雨"),
-    (["snow", "ice", "sleet", "blizzard"], SNOW, "雪"),
-    (["heavy rain", "torrential", "downpour", "pouring"], RAIN, "大雨"),
-    (["rain", "drizzle", "shower"], RAIN, "雨"),
-    (["fog", "mist"],        FOG,       "雾"),
-    (["haze", "smoke", "dust", "sand"], FOG, "沙尘"),
-    (["overcast"],           FOG,       "阴"),
+    (["thunder", "storm", "雷"],   THUNDER,   "雷雨"),
+    (["snow", "ice", "sleet", "blizzard", "雪"], SNOW, "雪"),
+    (["heavy rain", "torrential", "downpour", "pouring", "大雨"], RAIN, "大雨"),
+    (["rain", "drizzle", "shower", "雨"], RAIN, "雨"),
+    (["fog", "mist", "雾"],        FOG,       "雾"),
+    (["haze", "smoke", "dust", "sand", "霾", "沙", "尘"], FOG, "雾霾"),
+    (["overcast", "阴"],           FOG,       "阴"),
     (["partly", "partially", " partly"], SUN_CLOUD, "多云"),
-    (["cloud", "cloudy"],    CLOUD,     "多云"),
-    (["clear", "sunny"],     SUN,       "晴"),
+    (["cloud", "cloudy", "云"],    CLOUD,     "多云"),
+    (["clear", "sunny", "晴"],     SUN,       "晴"),
 ]
 
 
@@ -238,32 +234,52 @@ def _safe_get(url, timeout=10):
         return None
 
 
-def fetch(city):
-    """获取天气。city 为英文城市名或留空(自动IP定位)。
+def _loads_json(text):
+    try:
+        import ujson as json
+    except ImportError:
+        import json
+    return json.loads(text)
 
-    返回 dict: {temp, cond, humidity, wind, raw} 或 None。
-    temp 形如 "31°C"；cond 如 "Patchy rain nearby"。
+
+def fetch(city=""):
+    """获取天气。
+
+    返回 dict: {temp, cond, humidity, wind, high, low, city, raw} 或 None。
+    xfabe 接口里 weather[0].temp 是中文天气现象，high/low 才是温度。
+    city 参数保留为兼容旧调用，目前接口按 IP 自动定位。
     """
-    loc = city if city else ""
-    url = "https://wttr.in/%s?format=%%t|%%C|%%h|%%w" % loc
-    text = _safe_get(url)
-    if not text or "|" not in text:
+    text = _safe_get("https://node.api.xfabe.com/api/weather/get", timeout=8)
+    if not text:
         return None
-    text = text.strip()
-    parts = text.split("|")
-    if len(parts) < 4:
+    try:
+        obj = _loads_json(text)
+        if obj.get("code") != 200:
+            return None
+        data = obj.get("data") or {}
+        weather = data.get("weather") or []
+        if not weather:
+            return None
+        item = weather[0]
+        cond = (item.get("temp") or "").strip()
+        high = (item.get("high") or "").strip()
+        low = (item.get("low") or "").strip()
+        humidity = (item.get("humidity") or "").strip()
+        wind_scale = str(item.get("wind_scale") or "").strip()
+        wind = (wind_scale + "级") if wind_scale else ""
+        return {
+            "temp": high,
+            "cond": cond,
+            "humidity": humidity,
+            "wind": wind,
+            "high": high,
+            "low": low,
+            "city": data.get("city") or "",
+            "raw": text,
+        }
+    except Exception as e:
+        print("weather json fail:", e)
         return None
-    temp = parts[0].replace("+", "").strip()        # "+31°C" -> "31°C"
-    cond = parts[1].strip()
-    humidity = parts[2].strip()                       # "52%"
-    wind = parts[3].strip()                           # "←8km/h"
-    return {
-        "temp": temp,
-        "cond": cond,
-        "humidity": humidity,
-        "wind": wind,
-        "raw": text,
-    }
 
 
 def draw_icon_for(disp, condition, x, y):
