@@ -23,6 +23,8 @@ FILES = [
     ("lib/st7735_buf.py",         "/lib/st7735_buf.py"),
     ("lib/bigfont.py",            "/lib/bigfont.py"),
     ("lib/easydisplay.py",        "/lib/easydisplay.py"),
+    ("lib/watch_ui.py",           "/lib/watch_ui.py"),
+    ("lib/keynav.py",             "/lib/keynav.py"),
     ("lib/astro_icon.py",         "/lib/astro_icon.py"),
     ("lib/local_sensor.py",       "/lib/local_sensor.py"),
     ("lib/weather.py",            "/lib/weather.py"),

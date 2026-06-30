@@ -97,6 +97,8 @@ uv run python scripts/flash.py upload apps\astronaut_watch.py :/main.py
 uv run python scripts/flash.py upload lib\st7735_buf.py
 uv run python scripts/flash.py upload lib\bigfont.py
 uv run python scripts/flash.py upload lib\easydisplay.py
+uv run python scripts/flash.py upload lib\watch_ui.py
+uv run python scripts/flash.py upload lib\keynav.py
 uv run python scripts/flash.py upload lib\astro_icon.py
 uv run python scripts/flash.py upload lib\local_sensor.py
 uv run python scripts/flash.py upload lib\weather.py
