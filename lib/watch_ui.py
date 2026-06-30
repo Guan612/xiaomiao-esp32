@@ -184,8 +184,11 @@ def draw_weather_page(disp, easydisp, ip, wifi_ok, weather_data,
     elif weather_data:
         wx.draw_icon_for(disp, weather_data["cond"], 8, 30)
         cond_cn = wx.condition_cn(weather_data["cond"]) if easydisp else None
-        if easydisp and cond_cn:
-            easydisp.text(cond_cn, 34, 26, WHITE, show=False)
+        city = weather_data.get("city", "")
+        cond = cond_cn or weather_data["cond"]
+        if easydisp:
+            title = ((city + " ") if city else "") + cond
+            easydisp.text(title[:7], 34, 26, WHITE, show=False)
         else:
             disp.text(weather_data["cond"][:15], 34, 30, WHITE)
 
@@ -193,14 +196,19 @@ def draw_weather_page(disp, easydisp, ip, wifi_ok, weather_data,
         low = weather_data.get("low", "")
         humidity = weather_data.get("humidity", "")
         wind = weather_data.get("wind", "")
-        if low:
-            disp.text(("HIGH " + temp)[:19], 8, 56, YELLOW)
-            disp.text(("LOW  " + low)[:19], 8, 72, CYAN)
-            disp.text(("H%s W%s" % (humidity, wind))[:19], 8, 88, GRAY)
+        if easydisp and low:
+            easydisp.text(("高温 " + temp)[:9], 8, 54, YELLOW, show=False)
+            easydisp.text(("低温 " + low)[:9], 8, 72, CYAN, show=False)
+            easydisp.text(("湿度 " + humidity)[:9], 8, 90, WHITE, show=False)
+            easydisp.text(("风力 " + wind)[:9], 8, 108, GRAY, show=False)
+        elif low:
+            disp.text(("HIGH " + temp.replace("℃", "C"))[:19], 8, 56, YELLOW)
+            disp.text(("LOW  " + low.replace("℃", "C"))[:19], 8, 72, CYAN)
+            disp.text(("H%s W%s" % (humidity, wind.replace("级", "")))[:19], 8, 88, GRAY)
         else:
-            disp.text(("T " + temp)[:19], 8, 56, YELLOW)
+            disp.text(("T " + temp.replace("℃", "C"))[:19], 8, 56, YELLOW)
             disp.text(("H " + humidity)[:19], 8, 72, CYAN)
-            disp.text(("W " + wind)[:19], 8, 88, GRAY)
+            disp.text(("W " + wind.replace("级", ""))[:19], 8, 88, GRAY)
     else:
         if easydisp:
             easydisp.text("按A刷新天气", 24, 52, GRAY, show=False)
