@@ -2,21 +2,22 @@
 
 背景：main.py 开机自启占串口 + 关闭串口会触发板子复位，导致 mpremote 不可靠。
 本脚本在【单次串口连接】内打断 main.py、保持 raw REPL，逐文件分块 base64 写入，
-最后软复位运行。每块很小（300B 原始）保证 raw REPL 命令缓冲不溢出。
+最后软复位运行。默认每批写入 4 个 300B 原始块，兼顾速度与 raw REPL 缓冲限制。
 
 用法：
-  uv run python scripts/deploy_all.py            # 传全部
-  uv run python scripts/deploy_all.py --no-font  # 不传字库（已传过时）
+  uv run python scripts/deploy_all.py                      # 传全部
+  uv run python scripts/deploy_all.py --port COM10          # 指定串口
+  uv run python scripts/deploy_all.py --no-font             # 不传字库（已传过时）
 """
+import argparse
 import base64
 import os
 import serial
-import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-PORT = os.environ.get("ESP32_PORT", "COM3")
+DEFAULT_PORT = os.environ.get("ESP32_PORT", "COM3")
 
 # (本地相对 ROOT 的路径, 板子绝对路径)
 FILES = [
@@ -33,24 +34,18 @@ FILES = [
     ("lib/captive_portal.py",     "/lib/captive_portal.py"),
     ("lib/webui.py",              "/lib/webui.py"),
     ("apps/astronaut_watch.py",   "/main.py"),
-    ("font/text_lite_16px_2312.v3.bmf", "/font/text_lite_16px_2312.v3.bmf"),
+    ("font/noto_sans_sc_16px_gb2312.v3.bmf", "/font/noto_sans_sc_16px_gb2312.v3.bmf"),
 ]
 
 
 def open_and_halt(port):
-    s = serial.Serial(port, 115200, timeout=1, dsrdtr=False, rtscts=False)
-    s.dtr = False
-    s.rts = False
-    time.sleep(0.5)
-    end = time.time() + 0.8
+    s = serial.Serial(port, 115200, timeout=1)
+    # 开串口会让部分板子复位，必须在 boot 后 main.py 启动前持续打断。
+    end = time.time() + 8.0
     while time.time() < end:
-        if not s.read(256):
-            break
-        time.sleep(0.05)
-    for _ in range(4):
         s.write(b'\x03')
-        time.sleep(0.4)
-    time.sleep(0.6)
+        time.sleep(0.15)
+        s.read(512)
     end = time.time() + 1.0
     while time.time() < end:
         if not s.read(256):
@@ -99,7 +94,7 @@ def exec_raw(s, code, timeout=12):
     return text
 
 
-def upload(s, local_rel, remote, chunk=300):
+def upload(s, local_rel, remote, chunk=300, batch=4):
     """分块 base64 写入。f、D 句柄跨块保持。"""
     local = os.path.join(ROOT, local_rel.replace('/', os.sep))
     with open(local, 'rb') as f:
@@ -120,12 +115,18 @@ def upload(s, local_rel, remote, chunk=300):
     off = 0
     last_report = 0
     while off < total:
-        piece = data[off:off + chunk]
-        b64 = base64.b64encode(piece).decode('ascii')
-        r = exec_raw(s, "f.write(D.a2b_base64(%r))\n" % b64)
+        lines = []
+        start = off
+        for _ in range(batch):
+            if off >= total:
+                break
+            piece = data[off:off + chunk]
+            b64 = base64.b64encode(piece).decode('ascii')
+            lines.append("f.write(D.a2b_base64(%r))" % b64)
+            off += len(piece)
+        r = exec_raw(s, "\n".join(lines) + "\n")
         if 'Traceback' in r:
-            raise RuntimeError("写 %s @%d 失败: %s" % (remote, off, r))
-        off += len(piece)
+            raise RuntimeError("写 %s @%d 失败: %s" % (remote, start, r))
         if off - last_report >= max(chunk * 30, 6000) or off >= total:
             print("    %s: %d/%d" % (remote, off, total))
             last_report = off
@@ -141,13 +142,18 @@ def upload(s, local_rel, remote, chunk=300):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="部署文件到 ESP32 raw REPL")
+    parser.add_argument("--port", default=DEFAULT_PORT, help="串口号，默认读取 ESP32_PORT 或 COM3")
+    parser.add_argument("--no-font", action="store_true", help="不上传 .bmf 字库文件")
+    args = parser.parse_args()
+
     files = list(FILES)
-    if '--no-font' in sys.argv:
+    if args.no_font:
         files = [f for f in files if 'bmf' not in f[0]]
-    print("端口:", PORT)
+    print("端口:", args.port)
     for lo, rm in files:
         print("   ", lo, "->", rm)
-    s = open_and_halt(PORT)
+    s = open_and_halt(args.port)
     print("已打断 main.py")
     try:
         for local_rel, remote in files:

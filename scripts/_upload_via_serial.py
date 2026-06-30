@@ -5,34 +5,31 @@
 
 用法：
   # 执行任意 python（从 stdin）
-  printf 'import os\nprint(os.listdir("/"))' | uv run python scripts/_upload_via_serial.py
+  printf 'import os\nprint(os.listdir("/"))' | uv run python scripts/_upload_via_serial.py --port COM10
 
   # 上传二进制/文本文件
-  uv run python scripts/_upload_via_serial.py upload 本地路径 :/板子路径 [端口]
+  uv run python scripts/_upload_via_serial.py --port COM10 upload 本地路径 :/板子路径
+  uv run python scripts/_upload_via_serial.py upload 本地路径 :/板子路径 COM10  # 兼容旧用法
 """
+import argparse
+import base64
+import os
 import serial
 import sys
 import time
-import base64
+
+DEFAULT_PORT = os.environ.get("ESP32_PORT", "COM3")
 
 
-def open_and_halt(port='COM3'):
-    # dsrdtr/rtscts=False 尽量避免 DTR/RTS 电平变化触发 ESP32 复位。
-    # 注意：本板关闭串口仍可能触发复位，故所有操作应在单次 open/close 内完成。
-    s = serial.Serial(port, 115200, timeout=1, dsrdtr=False, rtscts=False)
-    s.dtr = False
-    s.rts = False
-    time.sleep(0.5)
-    # 排空开串口后板子吐出的 boot / main.py 日志
+def open_and_halt(port=DEFAULT_PORT):
+    # 保持 pyserial 默认 DTR/RTS 电平；COM10 这类板子强行拉低会持续复位。
+    s = serial.Serial(port, 115200, timeout=1)
+    # 开串口会让部分板子复位，必须在 boot 后 main.py 启动前持续打断。
     end = time.time() + 8.0
     while time.time() < end:
-        s.read(256)
-        time.sleep(0.05)
-    # 多次 Ctrl-C 确保 main.py 被打断（落在启动/WiFi 连接期间也能打断）
-    for _ in range(4):
         s.write(b'\x03')
-        time.sleep(0.4)
-    time.sleep(0.6)
+        time.sleep(0.15)
+        s.read(512)
     # 排空打断后的残留
     end = time.time() + 1.0
     while time.time() < end:
@@ -99,7 +96,7 @@ def exec_raw(s, code):
     return text
 
 
-def upload_file(port, local, remote, chunk=400):
+def upload_file(port, local, remote, chunk=300, batch=4):
     """以 base64 分块上传二进制文件到板子。
 
     全程保持单次串口连接 + raw REPL 会话，句柄 f 跨 exec_raw 保持。
@@ -142,15 +139,20 @@ def upload_file(port, local, remote, chunk=400):
         total = len(data)
         i = 0
         while i < total:
-            piece = data[i:i + chunk]
-            b64 = base64.b64encode(piece).decode('ascii')
-            wcode = "f.write(D(%r))\n" % b64
-            r = exec_raw(s, wcode)
+            lines = []
+            start = i
+            for _ in range(batch):
+                if i >= total:
+                    break
+                piece = data[i:i + chunk]
+                b64 = base64.b64encode(piece).decode('ascii')
+                lines.append("f.write(D(%r))" % b64)
+                i += len(piece)
+            r = exec_raw(s, "\n".join(lines) + "\n")
             if "Traceback" in r:
-                print("写入失败 @%d: %s" % (i, r))
+                print("写入失败 @%d: %s" % (start, r))
                 return False
-            i += chunk
-            if i % (chunk * 20) == 0 or i >= total:
+            if i % (chunk * batch * 5) == 0 or i >= total:
                 print("  已传 %d / %d" % (min(i, total), total))
         rc = exec_raw(s, "f.close()\nimport os\nprint('done size',os.stat(%r)[6])\n" % remote)
         print(rc.strip())
@@ -161,15 +163,22 @@ def upload_file(port, local, remote, chunk=400):
 
 
 def main():
-    args = sys.argv[1:]
-    if args and args[0] == 'upload':
-        local, remote = args[1], args[2]
-        port = args[3] if len(args) > 3 else 'COM3'
+    parser = argparse.ArgumentParser(description="通过 ESP32 raw REPL 执行代码或上传文件")
+    parser.add_argument("--port", default=DEFAULT_PORT, help="串口号，默认读取 ESP32_PORT 或 COM3")
+    parser.add_argument("command", nargs="?", help="upload 表示上传文件；省略则执行 stdin 代码")
+    parser.add_argument("args", nargs="*")
+    ns = parser.parse_args()
+
+    if ns.command == 'upload':
+        if len(ns.args) < 2:
+            parser.error("upload 需要: 本地路径 :/板子路径 [端口]")
+        local, remote = ns.args[0], ns.args[1]
+        port = ns.args[2] if len(ns.args) > 2 else ns.port
         ok = upload_file(port, local, remote)
         sys.exit(0 if ok else 1)
     else:
         code = sys.stdin.read()
-        s = open_and_halt()
+        s = open_and_halt(ns.port)
         try:
             print(exec_raw(s, code))
         finally:

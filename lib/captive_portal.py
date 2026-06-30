@@ -25,7 +25,7 @@ AP_SSID = "Xueersi-Setup"
 AP_IP = "192.168.4.1"
 WIFI_FILE = "/wifi.json"
 # 中文字库（与 astronaut_watch.py 共用；缺失时屏幕提示回退英文）
-FONT_FILE = "/font/text_lite_16px_2312.v3.bmf"
+FONT_FILE = "/font/noto_sans_sc_16px_gb2312.v3.bmf"
 
 # captive portal 检测端点（各平台探测路径，统一返回配网页）
 # iOS/macOS: /hotspot-detect.html ; Android: /generate_204 ; Windows: /ncsi.txt

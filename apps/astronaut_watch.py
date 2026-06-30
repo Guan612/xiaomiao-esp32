@@ -7,7 +7,7 @@ r"""WiFi 太空人手表（含天气 + AP 配网 + 中文字库）。
   3. 天气手动刷新（避免网络请求阻塞启动）
   4. 屏幕显示：太空人 + 大号时间 + 日期 + 天气(图标+温度+湿度+状况)
 
-中文字库：用 font/text_lite_16px_2312.v3.bmf（GB2312，3983 字），
+中文字库：用 font/noto_sans_sc_16px_gb2312.v3.bmf（GB2312 常用字符），
 经 lib/easydisplay.py 渲染。时间数字仍用 bigfont 像素大字体（更醒目）。
 
 首次使用：开机后手机连 "Xueersi-Setup" 热点 → 弹出配网页 → 选 WiFi → 输密码。
@@ -25,7 +25,7 @@ r"""WiFi 太空人手表（含天气 + AP 配网 + 中文字库）。
   uv run python scripts/flash.py upload lib\wifi_manager.py
   uv run python scripts/flash.py upload lib\captive_portal.py
   # 中文字库（务必传到板子 /font/ 目录）：
-  uv run python scripts/flash.py upload font\text_lite_16px_2312.v3.bmf :/font/text_lite_16px_2312.v3.bmf
+  uv run python scripts/flash.py upload font\noto_sans_sc_16px_gb2312.v3.bmf :/font/noto_sans_sc_16px_gb2312.v3.bmf
 
 复位即运行。
 """
@@ -51,7 +51,7 @@ import watch_ui as ui  # noqa: E402
 import wifi_config as cfg  # noqa: E402
 
 # ---- 中文字库路径 ----
-FONT_FILE = "/font/text_lite_16px_2312.v3.bmf"
+FONT_FILE = "/font/noto_sans_sc_16px_gb2312.v3.bmf"
 
 WHITE = 0xFFFF
 YELLOW = 0xFFE0

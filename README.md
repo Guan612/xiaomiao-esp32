@@ -30,7 +30,7 @@ esp32/
 │   ├── wifi_manager.py    # WiFi 凭证管理（读 /wifi.json）+ 连接调度
 │   └── captive_portal.py  # AP 配网（开热点 + DNS 劫持 + HTTP 配网页）
 ├── font/
-│   └── text_lite_*.bmf    # 16px 中文字库
+│   └── *.bmf              # 16px 中文字库
 ├── apps/                  # 上传到板子运行的脚本
 │   ├── hello.py           # 蜂鸣器 + 按键（不依赖屏幕驱动）
 │   ├── hello_screen.py    # ★ 点亮屏幕 demo（自包含）
@@ -107,7 +107,7 @@ uv run python scripts/flash.py upload lib\wifi_manager.py
 uv run python scripts/flash.py upload lib\captive_portal.py
 uv run python scripts/flash.py upload lib\webui.py
 # 中文字库（务必传到板子 /font/ 目录，否则界面回退英文）：
-uv run python scripts/flash.py upload font\text_lite_16px_2312.v3.bmf :/font/text_lite_16px_2312.v3.bmf
+uv run python scripts/flash.py upload font\noto_sans_sc_16px_gb2312.v3.bmf :/font/noto_sans_sc_16px_gb2312.v3.bmf
 ```
 
 **第三步：** 按一下 EN 复位 → 首次会开热点，手机连 `XiaoMiao-Setup` 配网 →
