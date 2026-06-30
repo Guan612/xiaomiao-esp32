@@ -4,7 +4,7 @@ r"""WiFi 太空人手表（含天气 + AP 配网 + 中文字库）。
   1. AP 配网：无 WiFi 凭据(或连不上)时，板子开热点，手机连上后自动弹配网页
      选 WiFi、输密码，存盘重启后自动连接。详情见 lib/captive_portal.py。
   2. NTP 对时（aliyun, UTC+8）
-  3. wttr.in 拉天气（免 key，自动 IP 定位或指定城市）
+  3. 天气手动刷新（避免网络请求阻塞启动）
   4. 屏幕显示：太空人 + 大号时间 + 日期 + 天气(图标+温度+湿度+状况)
 
 中文字库：用 font/text_lite_16px_2312.v3.bmf（GB2312，3983 字），
@@ -19,6 +19,7 @@ r"""WiFi 太空人手表（含天气 + AP 配网 + 中文字库）。
   uv run python scripts/flash.py upload lib\bigfont.py
   uv run python scripts/flash.py upload lib\easydisplay.py
   uv run python scripts/flash.py upload lib\weather.py
+  uv run python scripts/flash.py upload lib\netease_hot.py
   uv run python scripts/flash.py upload lib\wifi_manager.py
   uv run python scripts/flash.py upload lib\captive_portal.py
   # 中文字库（务必传到板子 /font/ 目录）：
@@ -36,10 +37,13 @@ from machine import Pin, SPI, RTC  # noqa: E402
 import machine  # noqa: E402  (for machine.reset)
 import st7735_buf as st  # noqa: E402
 import bigfont as bf  # noqa: E402
+import astro_icon  # noqa: E402
 import easydisplay as ed  # noqa: E402
 import weather as wx  # noqa: E402
 import wifi_manager as wmgr  # noqa: E402
 import webui as webui_mod  # noqa: E402
+import local_sensor  # noqa: E402
+import netease_hot  # noqa: E402
 
 import wifi_config as cfg  # noqa: E402
 
@@ -57,8 +61,41 @@ BLUE = 0x001F
 GRAY = 0x7BEF
 ORANGE = 0xFD20
 
+# ---- 按键 ----
+KEYS = {
+    "up": 2,
+    "down": 13,
+    "left": 27,
+    "right": 35,
+    "a": 34,
+    "b": 12,
+}
+
 # ---- 星期（中文字库支持） ----
 WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+
+
+class KeyNav:
+    """上拉按键边沿检测。返回刚按下的键名列表。"""
+
+    def __init__(self):
+        self.pins = {name: Pin(gpio, Pin.IN, Pin.PULL_UP)
+                     for name, gpio in KEYS.items()}
+        self.last = {name: 1 for name in KEYS}
+        self.last_ms = 0
+
+    def poll(self):
+        now = time.ticks_ms()
+        if time.ticks_diff(now, self.last_ms) < 35:
+            return []
+        self.last_ms = now
+        hits = []
+        for name, pin in self.pins.items():
+            val = pin.value()
+            if val == 0 and self.last.get(name, 1) == 1:
+                hits.append(name)
+            self.last[name] = val
+        return hits
 
 
 def init_display():
@@ -108,7 +145,43 @@ def show_status(disp, easydisp, msg, color=WHITE):
     disp.show()
 
 
-def draw_clock(disp, easydisp, now, ip, wifi_ok, weather_data):
+def _char_units(ch):
+    return 1 if ord(ch) < 128 else 2
+
+
+def wrap_text(text, max_units=18, max_lines=0):
+    """按 16px 中文字库半角宽度做粗略换行。"""
+    if not text:
+        return []
+    lines = []
+    line = ""
+    units = 0
+    for ch in text:
+        if ch == "\n":
+            if line:
+                lines.append(line)
+            line = ""
+            units = 0
+        else:
+            w = _char_units(ch)
+            if units + w > max_units and line:
+                lines.append(line)
+                line = ch
+                units = w
+            else:
+                line += ch
+                units += w
+        if max_lines and len(lines) >= max_lines:
+            break
+    if line and (not max_lines or len(lines) < max_lines):
+        lines.append(line)
+    if max_lines and len(lines) == max_lines and len(text) > sum(len(x) for x in lines):
+        last = lines[-1]
+        lines[-1] = (last[:-1] + "...") if len(last) > 1 else "..."
+    return lines
+
+
+def draw_clock(disp, easydisp, now, ip, wifi_ok, weather_data, astro_frame=0, local_temp=""):
     """主界面渲染。now=localtime 元组。
 
     布局（160x128 横屏）：
@@ -124,37 +197,38 @@ def draw_clock(disp, easydisp, now, ip, wifi_ok, weather_data):
     # 且字库默认带黑色背景会盖掉绿底。故状态栏用 8x8 英文显示 IP/状态。
     bar = GREEN if wifi_ok else RED
     disp.fill_rect(0, 0, 160, 12, bar)
-    status = ("ON " + ip[:14]) if (wifi_ok and ip) else "OFFLINE"
+    status = ip if (wifi_ok and ip) else "OFFLINE"
     disp.text(status, 2, 2, BLACK)
     # 右上角温度快览
-    if weather_data:
-        disp.text(weather_data["temp"][:8], 122, 2, BLACK)
+    if local_temp and (len(status) + len(local_temp)) * 8 <= 148:
+        disp.text(local_temp[:5], 160 - len(local_temp[:5]) * 8 - 2, 2, BLACK)
 
-    # ---- 左上：太空人 (x=2, y=16) ----
-    bf.draw_astronaut(disp, 2, 16)
+    # ---- 左上：太空人 (x=2, y=18) ----
+    astro_icon.draw(disp, 2, 18, WHITE, astro_frame)
 
     # ---- 右上：大号时间 HH:MM + 秒（同一行，左对齐，顶部齐平 y=16）----
-    # 布局：HH:MM(scale=4) 从 x=30 起；秒(scale=3) 紧跟其后，间隔 6px。
-    # 总宽 76+6+21=103，右边界 133，屏幕 160，留 27px 余量，不会被截断。
+    # 布局：HH:MM(scale=4) 从 x=54 起；秒(scale=3) 紧跟其后，间隔 6px。
+    # 总宽 76+6+21=103，右边界 157，屏幕 160，不会被截断。
     time_str = "%02d:%02d" % (now[3], now[4])
     hm_scale = 4
-    hm_x = 30
+    hm_x = 54
     bf.draw_text(disp, time_str, hm_x, 16, hm_scale, CYAN)
 
-    # 秒：紧贴 HH:MM 右侧，顶部对齐(都 y=16)，橙色小一号
+    # 秒：紧贴 HH:MM 右侧，底边与 HH:MM 对齐
     hm_w = bf.text_width(time_str, hm_scale)
     sec_str = "%02d" % now[5]
     sec_x = hm_x + hm_w + 6
-    bf.draw_text(disp, sec_str, sec_x, 16, 3, ORANGE)
+    sec_y = 16 + (5 * hm_scale) - (5 * 3)
+    bf.draw_text(disp, sec_str, sec_x, sec_y, 3, ORANGE)
 
     # ---- 中部：日期 + 星期 (y=58) ----
     date_str = "%02d-%02d" % (now[1], now[2])
-    bf.draw_text(disp, date_str, 40, 58, 2, YELLOW)
+    bf.draw_text(disp, date_str, 58, 58, 2, YELLOW)
     if easydisp:
-        easydisp.text(WEEKDAYS[now[6] % 7], 100, 56, GRAY, show=False)
+        easydisp.text(WEEKDAYS[now[6] % 7], 112, 56, GRAY, show=False)
     else:
         en_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        bf.draw_text(disp, en_week[now[6] % 7], 100, 58, 2, GRAY)
+        bf.draw_text(disp, en_week[now[6] % 7], 112, 58, 2, GRAY)
 
     # ---- 底部：天气区 (y=92~127) ----
     disp.hline(0, 96, 160, GRAY)
@@ -168,15 +242,109 @@ def draw_clock(disp, easydisp, now, ip, wifi_ok, weather_data):
         # 状况文字（中文走字库，英文则截断显示原描述）
         cond_cn = wx.condition_cn(weather_data["cond"]) if easydisp else None
         if easydisp and cond_cn:
-            easydisp.text(cond_cn, 2, 122, WHITE, show=False)
+            easydisp.text(cond_cn, 26, 116, WHITE, size=12, show=False)
         else:
-            disp.text(weather_data["cond"][:24], 2, 120, WHITE)
+            disp.text(weather_data["cond"][:16], 26, 118, WHITE)
     else:
         if easydisp:
             easydisp.text("天气加载中…", 2, 108, GRAY, show=False)
         else:
             disp.text("weather: loading...", 2, 108, GRAY)
 
+    disp.show()
+
+
+def draw_hot_comment(disp, easydisp, ip, wifi_ok, text, loading=False, err="",
+                     scroll=0):
+    """网易云热评页。"""
+    disp.fill(0)
+    disp.fill_rect(0, 0, 160, 14, BLUE if wifi_ok else RED)
+    disp.text("NETEASE HOT", 2, 3, WHITE)
+    disp.text("A/R refresh", 75, 3, YELLOW)
+
+    if loading:
+        if easydisp:
+            easydisp.text("热评加载中", 28, 46, CYAN, show=False)
+        else:
+            disp.text("loading...", 36, 54, CYAN)
+    elif err:
+        if easydisp:
+            easydisp.text(err, 8, 46, RED, show=False)
+            easydisp.text("按A重试", 8, 72, GRAY, show=False)
+        else:
+            disp.text(err[:18], 8, 50, RED)
+            disp.text("Press A retry", 8, 72, GRAY)
+    elif text:
+        disp.hline(0, 18, 160, GRAY)
+        lines = wrap_text(text, max_units=18)
+        max_scroll = max(0, len(lines) - 5)
+        if scroll < 0:
+            scroll = 0
+        if scroll > max_scroll:
+            scroll = max_scroll
+        lines = lines[scroll:scroll + 5]
+        y = 23
+        for line in lines:
+            if easydisp:
+                easydisp.text(line, 8, y, WHITE, show=False)
+            else:
+                disp.text(line[:18], 8, y, WHITE)
+            y += 19
+    else:
+        if easydisp:
+            easydisp.text("暂无热评", 40, 50, GRAY, show=False)
+        else:
+            disp.text("No comment", 40, 54, GRAY)
+
+    disp.hline(0, 112, 160, GRAY)
+    bottom = "< > page  ^ v scroll"
+    if wifi_ok and ip:
+        bottom = ip[:15]
+    disp.text(bottom, 2, 117, GRAY)
+    disp.show()
+
+
+def draw_weather_page(disp, easydisp, ip, wifi_ok, weather_data,
+                      loading=False, err=""):
+    """天气页：只在用户手动刷新后显示数据。"""
+    disp.fill(0)
+    disp.fill_rect(0, 0, 160, 14, BLUE if wifi_ok else RED)
+    disp.text("WEATHER", 2, 3, WHITE)
+    disp.text("A refresh", 88, 3, YELLOW)
+
+    if loading:
+        if easydisp:
+            easydisp.text("天气刷新中", 28, 46, CYAN, show=False)
+        else:
+            disp.text("loading...", 36, 54, CYAN)
+    elif err:
+        if easydisp:
+            easydisp.text(err, 8, 46, RED, show=False)
+            easydisp.text("按A重试", 8, 72, GRAY, show=False)
+        else:
+            disp.text(err[:18], 8, 50, RED)
+            disp.text("Press A retry", 8, 72, GRAY)
+    elif weather_data:
+        wx.draw_icon_for(disp, weather_data["cond"], 8, 34)
+        bf.draw_text(disp, weather_data["temp"], 36, 32, 3, YELLOW)
+        bf.draw_text(disp, weather_data["humidity"], 36, 60, 2, CYAN)
+        cond_cn = wx.condition_cn(weather_data["cond"]) if easydisp else None
+        if easydisp and cond_cn:
+            easydisp.text(cond_cn, 36, 84, WHITE, show=False)
+        else:
+            disp.text(weather_data["cond"][:16], 36, 86, WHITE)
+        disp.text(weather_data.get("wind", "")[:16], 36, 106, GRAY)
+    else:
+        if easydisp:
+            easydisp.text("按A刷新天气", 24, 52, GRAY, show=False)
+        else:
+            disp.text("Press A refresh", 20, 58, GRAY)
+
+    disp.hline(0, 112, 160, GRAY)
+    bottom = "clock <  > hot"
+    if wifi_ok and ip:
+        bottom = ip[:15]
+    disp.text(bottom, 2, 117, GRAY)
     disp.show()
 
 
@@ -214,18 +382,26 @@ def main():
     if wlan:
         show_status(disp, easydisp, "Syncing time...", YELLOW)
         sync_ntp()
-        show_status(disp, easydisp, "Fetching weather...", YELLOW)
     else:
         show_status(disp, easydisp, "No WiFi - offline", RED)
         time.sleep(1)
 
-    # 立即拉一次天气
+    # 天气 HTTPS 在当前固件/网络上不稳定；不在启动阶段阻塞主界面。
     weather_data = None
-    if wlan:
-        weather_data = wx.fetch(cfg.WEATHER_CITY)
 
     last_ntp = time.time()
     last_weather = time.time()
+    last_sensor = time.ticks_add(time.ticks_ms(), -2000)
+    local_temp = ""
+    page = "clock"
+    hot_comment = None
+    hot_error = ""
+    hot_scroll = 0
+    weather_error = ""
+    hot_dirty = True
+    weather_dirty = True
+
+    keys = KeyNav()
 
     # WebUI 控制面板（仅在线时启动；离线无意义）
     web = None
@@ -238,8 +414,94 @@ def main():
         web.set_state(ip=ip, ssid=ssid)
 
     while True:
+        key_hits = keys.poll()
+        if key_hits:
+            if "down" in key_hits and page == "hot" and hot_comment:
+                max_scroll = max(0, len(wrap_text(hot_comment, max_units=18)) - 5)
+                if hot_scroll < max_scroll:
+                    hot_scroll += 1
+                    hot_dirty = True
+            elif "up" in key_hits and page == "hot" and hot_comment:
+                if hot_scroll > 0:
+                    hot_scroll -= 1
+                    hot_dirty = True
+            if "right" in key_hits:
+                if page == "clock":
+                    page = "hot"
+                    hot_dirty = True
+                elif page == "hot":
+                    page = "weather"
+                    weather_dirty = True
+                else:
+                    page = "clock"
+            if "left" in key_hits:
+                if page == "clock":
+                    page = "weather"
+                    weather_dirty = True
+                elif page == "weather":
+                    page = "hot"
+                    hot_dirty = True
+                else:
+                    page = "clock"
+            if "b" in key_hits:
+                page = "clock"
+            if page == "hot" and "a" in key_hits:
+                if wlan:
+                    draw_hot_comment(disp, easydisp, ip, True, hot_comment,
+                                     loading=True)
+                    gc.collect()
+                    try:
+                        hot_comment = netease_hot.fetch()
+                        hot_error = "" if hot_comment else "热评获取失败"
+                        hot_scroll = 0
+                    except Exception as e:
+                        print("hot refresh fail:", e)
+                        hot_error = "热评获取失败"
+                    hot_dirty = True
+                else:
+                    hot_error = "离线不可用"
+                    hot_dirty = True
+            if page == "weather" and "a" in key_hits:
+                if wlan:
+                    draw_weather_page(disp, easydisp, ip, True, weather_data,
+                                      loading=True)
+                    gc.collect()
+                    try:
+                        new_w = wx.fetch(cfg.WEATHER_CITY)
+                        if new_w:
+                            weather_data = new_w
+                            weather_error = ""
+                            last_weather = time.time()
+                        else:
+                            weather_error = "天气获取失败"
+                    except Exception as e:
+                        print("weather manual refresh fail:", e)
+                        weather_error = "天气获取失败"
+                    weather_dirty = True
+                else:
+                    weather_error = "离线不可用"
+                    weather_dirty = True
+
         now = time.localtime()
-        draw_clock(disp, easydisp, now, ip, wlan is not None, weather_data)
+        if time.ticks_diff(time.ticks_ms(), last_sensor) >= 2000:
+            try:
+                local_temp = local_sensor.temperature_label()
+            except Exception as e:
+                print("local temp fail:", e)
+                local_temp = ""
+            last_sensor = time.ticks_ms()
+        astro_frame = time.ticks_ms() // astro_icon.FRAME_MS
+        if page == "clock":
+            draw_clock(disp, easydisp, now, ip, wlan is not None,
+                       weather_data, astro_frame, local_temp)
+        elif page == "hot" and hot_dirty:
+            draw_hot_comment(disp, easydisp, ip, wlan is not None, hot_comment,
+                             err=hot_error, scroll=hot_scroll)
+            hot_dirty = False
+        elif page == "weather" and weather_dirty:
+            draw_weather_page(disp, easydisp, ip, wlan is not None, weather_data,
+                              err=weather_error)
+            weather_dirty = False
         gc.collect()
 
         # 定时 NTP（每小时）
@@ -251,7 +513,7 @@ def main():
                 pass
 
         # 定时刷新天气
-        if wlan and (time.time() - last_weather > cfg.WEATHER_INTERVAL):
+        if wlan and weather_data and (time.time() - last_weather > cfg.WEATHER_INTERVAL):
             try:
                 new_w = wx.fetch(cfg.WEATHER_CITY)
                 if new_w:
@@ -265,11 +527,11 @@ def main():
             cond = wx.condition_cn(weather_data["cond"]) or weather_data["cond"][:12]
             web.set_state(weather="%s %s" % (weather_data["temp"], cond))
 
-        # 【关键】用 WebUI.poll 替代原 sleep_ms(500)：500ms 内可响应 HTTP 请求
+        # 【关键】用 WebUI.poll 替代原 sleep_ms：轮询期间仍可响应 HTTP 请求
         if web:
-            action = web.poll(500)
+            action = web.poll(astro_icon.FRAME_MS)
         else:
-            time.sleep_ms(500)
+            time.sleep_ms(astro_icon.FRAME_MS)
             action = None
 
         # 动作分发
@@ -280,9 +542,8 @@ def main():
             print("[webui] reboot")
             machine.reset()
         if action == "resync":
-            print("[webui] resync weather+ntp")
+            print("[webui] resync ntp")
             last_ntp = 0       # 触发下一帧立即对时
-            last_weather = 0   # 触发下一帧立即拉天气
         if action == "rewifi":
             print("[webui] clear wifi creds + reboot")
             try:

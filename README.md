@@ -83,13 +83,13 @@ uv run python scripts/flash.py repl     # 进 REPL 观察 / 交互
 ## 🚀 太空人手表（WiFi 对时 + 天气）
 
 屏幕显示像素风太空人 + 大号实时时间 + 日期 + **天气**(图标+温度+湿度+状况)。
-连 WiFi 后 NTP 自动对时、wttr.in 自动拉天气（免 key，按 IP 定位城市）。
+连 WiFi 后 NTP 自动对时；天气页可手动刷新天气（免 key，按 IP 定位城市）。
 
 **第一步：配置（首次用 AP 配网，见下方「AP 配网」）。**
 开机后板子自动开热点 `XiaoMiao-Setup`，手机连上即弹配网页选 WiFi、输密码，
 存盘重启后自动连接。NTP/天气等不变量配置仍在 `apps/wifi_config.py`（可选改）。
 
-**第二步：部署（9 个文件）：**
+**第二步：部署：**
 
 ```bash
 uv run python scripts/flash.py upload apps\wifi_config.py
@@ -97,15 +97,27 @@ uv run python scripts/flash.py upload apps\astronaut_watch.py :/main.py
 uv run python scripts/flash.py upload lib\st7735_buf.py
 uv run python scripts/flash.py upload lib\bigfont.py
 uv run python scripts/flash.py upload lib\easydisplay.py
+uv run python scripts/flash.py upload lib\astro_icon.py
+uv run python scripts/flash.py upload lib\local_sensor.py
 uv run python scripts/flash.py upload lib\weather.py
+uv run python scripts/flash.py upload lib\netease_hot.py
 uv run python scripts/flash.py upload lib\wifi_manager.py
 uv run python scripts/flash.py upload lib\captive_portal.py
+uv run python scripts/flash.py upload lib\webui.py
 # 中文字库（务必传到板子 /font/ 目录，否则界面回退英文）：
 uv run python scripts/flash.py upload font\text_lite_16px_2312.v3.bmf :/font/text_lite_16px_2312.v3.bmf
 ```
 
 **第三步：** 按一下 EN 复位 → 首次会开热点，手机连 `XiaoMiao-Setup` 配网 →
-重启后自动连 WiFi → 对时 → 拉天气 → 显示太空人。
+重启后自动连 WiFi → 对时 → 显示太空人。天气页按 `A` 手动刷新天气。
+
+**按键界面：**
+
+- `右`：时钟 → 热评 → 天气 → 时钟
+- `左`：反向切换页面
+- `上 / 下`：滚动当前页面（目前热评页支持长评论滚动）
+- `B`：返回时钟页
+- `A`：在热评页刷新热评；在天气页刷新天气
 
 布局（160×128 横屏）：
 ```
@@ -127,7 +139,10 @@ uv run python scripts/flash.py upload font\text_lite_16px_2312.v3.bmf :/font/tex
 - 状况含晴/云/雨/雪/雷/雾，自动选对应像素图标
 
 > WiFi 不通时进入离线模式，时间从 0 点起，天气显示 loading。
-> NTP 每小时、天气每 `WEATHER_INTERVAL` 秒自动刷新。
+> NTP 每小时刷新；天气先在天气页按 `A` 手动刷新，已有天气数据后才会按 `WEATHER_INTERVAL` 自动刷新。
+
+**热评数据源：** [yunapi.cn 网易云热评 API](https://yunapi.cn/api/sjwyyrp)。
+热评页需要联网，接口不可达时会提示获取失败。
 
 ## 📡 AP 配网（首次连接 WiFi）
 

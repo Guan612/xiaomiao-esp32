@@ -29,21 +29,42 @@ def load_creds():
         return None
 
 
-def connect_sta(ssid, password, timeout_ms=10000):
+def connect_sta(ssid, password, timeout_ms=25000, retries=2):
     """连 STA，返回 (wlan, ip) 或 (None, None)。
 
     沿用 astronaut_watch.py 原 connect_wifi 的连接+超时等待模式。
     """
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
-    if not wlan.isconnected():
+    for attempt in range(1, retries + 1):
+        if wlan.isconnected():
+            break
+        try:
+            wlan.disconnect()
+            time.sleep(0.3)
+        except Exception:
+            pass
         print("[wifi] connecting to", ssid)
+        if retries > 1:
+            print("[wifi] attempt", attempt, "of", retries)
         wlan.connect(ssid, password)
         deadline = time.ticks_add(time.ticks_ms(), timeout_ms)
-        while time.ticks_ms() < deadline:
+        while time.ticks_diff(deadline, time.ticks_ms()) > 0:
             if wlan.isconnected():
                 break
+            try:
+                # Negative statuses are terminal on ESP32: no AP, bad password, etc.
+                if wlan.status() < 0:
+                    break
+            except Exception:
+                pass
             time.sleep(0.3)
+        if wlan.isconnected():
+            break
+        try:
+            print("[wifi] status:", wlan.status())
+        except Exception:
+            pass
     if wlan.isconnected():
         ip = wlan.ifconfig()[0]
         print("[wifi] ok, ip:", ip)

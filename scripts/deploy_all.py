@@ -20,9 +20,16 @@ PORT = os.environ.get("ESP32_PORT", "COM3")
 
 # (本地相对 ROOT 的路径, 板子绝对路径)
 FILES = [
+    ("lib/st7735_buf.py",         "/lib/st7735_buf.py"),
+    ("lib/bigfont.py",            "/lib/bigfont.py"),
     ("lib/easydisplay.py",        "/lib/easydisplay.py"),
+    ("lib/astro_icon.py",         "/lib/astro_icon.py"),
+    ("lib/local_sensor.py",       "/lib/local_sensor.py"),
     ("lib/weather.py",            "/lib/weather.py"),
+    ("lib/netease_hot.py",        "/lib/netease_hot.py"),
+    ("lib/wifi_manager.py",       "/lib/wifi_manager.py"),
     ("lib/captive_portal.py",     "/lib/captive_portal.py"),
+    ("lib/webui.py",              "/lib/webui.py"),
     ("apps/astronaut_watch.py",   "/main.py"),
     ("font/text_lite_16px_2312.v3.bmf", "/font/text_lite_16px_2312.v3.bmf"),
 ]

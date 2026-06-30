@@ -24,10 +24,9 @@ def open_and_halt(port='COM3'):
     s.rts = False
     time.sleep(0.5)
     # 排空开串口后板子吐出的 boot / main.py 日志
-    end = time.time() + 0.8
+    end = time.time() + 8.0
     while time.time() < end:
-        if not s.read(256):
-            break
+        s.read(256)
         time.sleep(0.05)
     # 多次 Ctrl-C 确保 main.py 被打断（落在启动/WiFi 连接期间也能打断）
     for _ in range(4):
@@ -105,6 +104,8 @@ def upload_file(port, local, remote, chunk=400):
 
     全程保持单次串口连接 + raw REPL 会话，句柄 f 跨 exec_raw 保持。
     """
+    if remote.startswith(":/"):
+        remote = remote[1:]
     with open(local, 'rb') as f:
         data = f.read()
     s = open_and_halt(port)
@@ -130,6 +131,7 @@ def upload_file(port, local, remote, chunk=400):
         code = (
             "f=open(%r,'wb')\n"
             "import ubinascii as B\n"
+            "D=getattr(B,'a2b_base64',None) or B.b64decode\n"
             "print('opened')\n"
         ) % remote
         r = exec_raw(s, code)
@@ -142,7 +144,7 @@ def upload_file(port, local, remote, chunk=400):
         while i < total:
             piece = data[i:i + chunk]
             b64 = base64.b64encode(piece).decode('ascii')
-            wcode = "f.write(B.b64decode(%r))\n" % b64
+            wcode = "f.write(D(%r))\n" % b64
             r = exec_raw(s, wcode)
             if "Traceback" in r:
                 print("写入失败 @%d: %s" % (i, r))
