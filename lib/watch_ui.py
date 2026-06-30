@@ -97,14 +97,16 @@ def draw_clock(disp, easydisp, now, ip, wifi_ok, weather_data,
 
     disp.hline(0, 96, 160, GRAY)
     if weather_data:
-        wx.draw_icon_for(disp, weather_data["cond"], 4, 102)
-        bf.draw_text(disp, weather_data["temp"], 26, 104, 2, YELLOW)
-        bf.draw_text(disp, weather_data["humidity"], 80, 104, 2, CYAN)
+        wx.draw_icon_for(disp, weather_data["cond"], 2, 103)
         cond_cn = wx.condition_cn(weather_data["cond"]) if easydisp else None
-        if easydisp and cond_cn:
-            easydisp.text(cond_cn, 26, 116, WHITE, size=12, show=False)
+        if easydisp:
+            easydisp.text(weather_data["temp"][:5], 26, 103, YELLOW, size=12, show=False)
+            easydisp.text((cond_cn or weather_data["cond"])[:3], 73, 103, WHITE, size=12, show=False)
+            easydisp.text(weather_data["humidity"][:4], 120, 103, CYAN, size=12, show=False)
         else:
-            disp.text(weather_data["cond"][:16], 26, 118, WHITE)
+            disp.text(weather_data["temp"][:5], 26, 108, YELLOW)
+            disp.text(weather_data["cond"][:6], 73, 108, WHITE)
+            disp.text(weather_data["humidity"][:4], 120, 108, CYAN)
     else:
         if easydisp:
             easydisp.text("天气加载中…", 2, 108, GRAY, show=False)
@@ -214,16 +216,19 @@ def _fill_round_rect(disp, x, y, w, h, r, color):
 def _draw_die_face(disp, x, y, size, value):
     shadow = 0x39E7
     edge = 0xC618
-    _fill_round_rect(disp, x + 4, y + 5, size, size, 10, shadow)
-    _fill_round_rect(disp, x, y, size, size, 10, WHITE)
+    radius = max(8, size // 8)
+    pip_r = max(5, size // 14)
+    inset = max(12, size // 4)
+    _fill_round_rect(disp, x + 4, y + 5, size, size, radius, shadow)
+    _fill_round_rect(disp, x, y, size, size, radius, WHITE)
     disp.rect(x + 5, y + 5, size - 10, size - 10, edge)
     pos = {
-        "tl": (x + 18, y + 18),
-        "tr": (x + size - 19, y + 18),
-        "ml": (x + 18, y + size // 2),
-        "mr": (x + size - 19, y + size // 2),
-        "bl": (x + 18, y + size - 19),
-        "br": (x + size - 19, y + size - 19),
+        "tl": (x + inset, y + inset),
+        "tr": (x + size - inset - 1, y + inset),
+        "ml": (x + inset, y + size // 2),
+        "mr": (x + size - inset - 1, y + size // 2),
+        "bl": (x + inset, y + size - inset - 1),
+        "br": (x + size - inset - 1, y + size - inset - 1),
         "c": (x + size // 2, y + size // 2),
     }
     layouts = {
@@ -236,30 +241,30 @@ def _draw_die_face(disp, x, y, size, value):
     }
     for key in layouts.get(value, ("c",)):
         px, py = pos[key]
-        disp.fill_circle(px, py, 5, PIP)
+        disp.fill_circle(px, py, pip_r, PIP)
 
 
-def draw_dice_page(disp, easydisp, value=1, temp="", light="", rolling=False):
-    """色子页。A 键掷骰，温度和照度参与随机因子。"""
+def _draw_dice_decor(disp):
+    disp.fill_rect(0, 0, 160, 16, ORANGE)
+    disp.hline(0, 17, 160, GRAY)
+
+
+def draw_dice_page(disp, easydisp, value=1, rolling=False):
+    """色子页。A 键掷骰。"""
     disp.fill(0)
-    disp.fill_rect(0, 0, 160, 14, ORANGE)
-    disp.text("DICE", 2, 3, BLACK)
-    disp.text("A roll", 104, 3, BLACK)
+    _draw_dice_decor(disp)
+    disp.text("DICE", 4, 4, BLACK)
+    disp.text("A ROLL", 104, 4, BLACK)
 
-    _draw_die_face(disp, 14, 28, 78, value)
-
-    if rolling:
-        disp.text("rolling", 102, 30, CYAN)
-    else:
-        bf.draw_text(disp, str(value), 112, 28, 5, YELLOW)
-
-    disp.hline(100, 78, 52, GRAY)
-    disp.text(("T " + (temp or "--"))[:7], 102, 88, CYAN)
-    disp.text(("L " + (light or "--"))[:7], 102, 104, GREEN)
+    _draw_die_face(disp, 12, 34, 76, value)
+    disp.vline(96, 28, 78, GRAY)
     if easydisp:
-        easydisp.text("温度+照度", 20, 112, GRAY, size=12, show=False)
+        easydisp.text("点数", 110, 31, CYAN, size=12, show=False)
     else:
-        disp.text("sensor rand", 12, 114, GRAY)
+        disp.text("VALUE", 108, 31, CYAN)
+    bf.draw_text(disp, str(value), 114, 58, 9, YELLOW)
+    if rolling:
+        disp.hline(108, 105, 38, CYAN)
     disp.show()
 
 

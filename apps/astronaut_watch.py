@@ -107,10 +107,9 @@ def next_page(page, delta):
 
 def roll_dice():
     sensor = local_sensor.entropy_sample()
-    seed = sensor["seed"] ^ time.ticks_us() ^ (time.time() << 2)
+    seed = sensor["seed"] ^ time.ticks_us() ^ (time.ticks_ms() << 3) ^ (time.time() << 2)
     random.seed(seed)
-    sensor["value"] = random.getrandbits(8) % 6 + 1
-    return sensor
+    return {"value": random.getrandbits(8) % 6 + 1}
 
 
 def main():
@@ -143,7 +142,7 @@ def main():
     hot_dirty = True
     weather_dirty = True
     dice_dirty = True
-    dice = {"value": 1, "temp": "", "light": ""}
+    dice = {"value": 1}
 
     keys = KeyNav()
 
@@ -222,15 +221,13 @@ def main():
                     for i in range(5):
                         ui.draw_dice_page(
                             disp, easydisp, (time.ticks_ms() + i) % 6 + 1,
-                            dice.get("temp", ""), dice.get("light", ""),
                             rolling=True,
                         )
                         time.sleep_ms(55)
                     dice = roll_dice()
                 except Exception as e:
                     print("dice roll fail:", e)
-                    dice = {"value": random.getrandbits(8) % 6 + 1,
-                            "temp": "", "light": ""}
+                    dice = {"value": random.getrandbits(8) % 6 + 1}
                 dice_dirty = True
 
         now = time.localtime()
@@ -254,8 +251,7 @@ def main():
                               err=weather_error)
             weather_dirty = False
         elif page == "dice" and dice_dirty:
-            ui.draw_dice_page(disp, easydisp, dice.get("value", 1),
-                              dice.get("temp", ""), dice.get("light", ""))
+            ui.draw_dice_page(disp, easydisp, dice.get("value", 1))
             dice_dirty = False
         gc.collect()
 
