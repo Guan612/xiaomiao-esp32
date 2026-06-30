@@ -33,11 +33,13 @@ import gc
 sys.path.append("/lib")
 
 from machine import Pin, SPI, RTC  # noqa: E402
+import machine  # noqa: E402  (for machine.reset)
 import st7735_buf as st  # noqa: E402
 import bigfont as bf  # noqa: E402
 import easydisplay as ed  # noqa: E402
 import weather as wx  # noqa: E402
 import wifi_manager as wmgr  # noqa: E402
+import webui as webui_mod  # noqa: E402
 
 import wifi_config as cfg  # noqa: E402
 
@@ -178,6 +180,29 @@ def draw_clock(disp, easydisp, now, ip, wifi_ok, weather_data):
     disp.show()
 
 
+def show_flash_mode_screen(disp, easydisp):
+    """刷写模式待机界面：提示已就绪，可用 USB 上传。
+
+    此界面不再做网络 IO，主程序在此软 sleep 等待，方便 USB 端的 Ctrl-C
+    干净打断（flash.py upload 能可靠进 raw REPL）。
+    """
+    disp.fill(0)
+    disp.fill_rect(0, 0, 160, 14, ORANGE)
+    if easydisp:
+        easydisp.text("刷写模式", 4, -1, BLACK, show=False)
+        easydisp.text("USB 上传就绪", 4, 26, CYAN, show=False)
+        easydisp.text("电脑执行:", 4, 50, WHITE, show=False)
+        easydisp.text("flash.py upload", 4, 68, YELLOW, show=False)
+        easydisp.text("传完按复位", 4, 96, GRAY, show=False)
+    else:
+        disp.text("FLASH MODE", 2, 3, BLACK)
+        disp.text("USB upload ready", 2, 30, CYAN)
+        disp.text("Run on PC:", 2, 50, WHITE)
+        disp.text("flash.py upload", 2, 62, YELLOW)
+        disp.text("Reset when done", 2, 96, GRAY)
+    disp.show()
+
+
 def main():
     disp = init_display()
     easydisp = init_easydisp(disp)
@@ -202,6 +227,16 @@ def main():
     last_ntp = time.time()
     last_weather = time.time()
 
+    # WebUI 控制面板（仅在线时启动；离线无意义）
+    web = None
+    if wlan:
+        try:
+            ssid = wlan.config("essid")
+        except Exception:
+            ssid = ""
+        web = webui_mod.WebUI(disp, easydisp)
+        web.set_state(ip=ip, ssid=ssid)
+
     while True:
         now = time.localtime()
         draw_clock(disp, easydisp, now, ip, wlan is not None, weather_data)
@@ -225,7 +260,42 @@ def main():
             except Exception as e:
                 print("weather refresh fail:", e)
 
-        time.sleep_ms(500)
+        # 同步面板天气状态
+        if web and weather_data:
+            cond = wx.condition_cn(weather_data["cond"]) or weather_data["cond"][:12]
+            web.set_state(weather="%s %s" % (weather_data["temp"], cond))
+
+        # 【关键】用 WebUI.poll 替代原 sleep_ms(500)：500ms 内可响应 HTTP 请求
+        if web:
+            action = web.poll(500)
+        else:
+            time.sleep_ms(500)
+            action = None
+
+        # 动作分发
+        if action == "flash":
+            print("[webui] entering flash mode")
+            break  # 跳出循环，进入刷写模式待机
+        if action == "reboot":
+            print("[webui] reboot")
+            machine.reset()
+        if action == "resync":
+            print("[webui] resync weather+ntp")
+            last_ntp = 0       # 触发下一帧立即对时
+            last_weather = 0   # 触发下一帧立即拉天气
+        if action == "rewifi":
+            print("[webui] clear wifi creds + reboot")
+            try:
+                import os
+                os.remove("/wifi.json")
+            except Exception:
+                pass
+            machine.reset()
+
+    # ---- 刷写模式待机：不再碰网络，软 sleep 等 USB 上传 ----
+    show_flash_mode_screen(disp, easydisp)
+    while True:
+        time.sleep(1)   # Ctrl-C 能在此干净打断 → flash.py upload 可靠进 raw REPL
 
 
 if __name__ == "__main__":
