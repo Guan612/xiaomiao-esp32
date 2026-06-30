@@ -54,20 +54,19 @@ def glyph_bitmap(font, ch, size):
 
 def pack_mono_hlsb(image, threshold=96):
     width, height = image.size
-    data = bytearray(width * ((height + 7) // 8))
-    index = -1
+    data = bytearray(height * ((width + 7) // 8))
     pixels = image.load()
-    for x in range(width):
-        for y in range(height):
-            if y % 8 == 0:
-                index += 1
+    row_bytes = (width + 7) // 8
+    for y in range(height):
+        for x in range(width):
             if pixels[x, y] >= threshold:
-                data[index] |= 1 << (7 - y % 8)
+                data[y * row_bytes + (x // 8)] |= 1 << (7 - x % 8)
     return bytes(data)
 
 
-def build(font_path, output_path, size):
+def build(font_path, output_path, size, ascii_font_path=None):
     font = ImageFont.truetype(str(font_path), size)
+    ascii_font = ImageFont.truetype(str(ascii_font_path), size) if ascii_font_path else font
     codes = iter_codes()
     bitmap_size = size * ((size + 7) // 8)
     map_bytes = b"".join(struct.pack(">H", code) for code in codes)
@@ -88,7 +87,8 @@ def build(font_path, output_path, size):
         out.write(header)
         out.write(map_bytes)
         for code in codes:
-            bitmap = glyph_bitmap(font, chr(code), size)
+            glyph_font = ascii_font if code < 128 else font
+            bitmap = glyph_bitmap(glyph_font, chr(code), size)
             out.write(pack_mono_hlsb(bitmap))
 
     print("codes:", len(codes))
@@ -101,10 +101,13 @@ def build(font_path, output_path, size):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--font", default=r"C:\Windows\Fonts\NotoSansSC-VF.ttf")
+    parser.add_argument("--ascii-font", default=None,
+                        help="Optional font used for ASCII glyphs only.")
     parser.add_argument("--output", default="font/noto_sans_sc_16px_gb2312.v3.bmf")
     parser.add_argument("--size", type=int, default=16)
     args = parser.parse_args()
-    build(Path(args.font), Path(args.output), args.size)
+    build(Path(args.font), Path(args.output), args.size,
+          Path(args.ascii_font) if args.ascii_font else None)
 
 
 if __name__ == "__main__":

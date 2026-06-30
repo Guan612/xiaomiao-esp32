@@ -13,6 +13,7 @@ RED = 0xF800
 BLUE = 0x001F
 GRAY = 0x7BEF
 ORANGE = 0xFD20
+PIP = 0x0008
 
 WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
@@ -198,6 +199,67 @@ def draw_weather_page(disp, easydisp, ip, wifi_ok, weather_data,
         else:
             disp.text("Press A refresh", 20, 58, GRAY)
 
+    disp.show()
+
+
+def _fill_round_rect(disp, x, y, w, h, r, color):
+    disp.fill_rect(x + r, y, w - 2 * r, h, color)
+    disp.fill_rect(x, y + r, w, h - 2 * r, color)
+    disp.fill_circle(x + r, y + r, r, color)
+    disp.fill_circle(x + w - r - 1, y + r, r, color)
+    disp.fill_circle(x + r, y + h - r - 1, r, color)
+    disp.fill_circle(x + w - r - 1, y + h - r - 1, r, color)
+
+
+def _draw_die_face(disp, x, y, size, value):
+    shadow = 0x39E7
+    edge = 0xC618
+    _fill_round_rect(disp, x + 4, y + 5, size, size, 10, shadow)
+    _fill_round_rect(disp, x, y, size, size, 10, WHITE)
+    disp.rect(x + 5, y + 5, size - 10, size - 10, edge)
+    pos = {
+        "tl": (x + 18, y + 18),
+        "tr": (x + size - 19, y + 18),
+        "ml": (x + 18, y + size // 2),
+        "mr": (x + size - 19, y + size // 2),
+        "bl": (x + 18, y + size - 19),
+        "br": (x + size - 19, y + size - 19),
+        "c": (x + size // 2, y + size // 2),
+    }
+    layouts = {
+        1: ("c",),
+        2: ("tl", "br"),
+        3: ("tl", "c", "br"),
+        4: ("tl", "tr", "bl", "br"),
+        5: ("tl", "tr", "c", "bl", "br"),
+        6: ("tl", "tr", "ml", "mr", "bl", "br"),
+    }
+    for key in layouts.get(value, ("c",)):
+        px, py = pos[key]
+        disp.fill_circle(px, py, 5, PIP)
+
+
+def draw_dice_page(disp, easydisp, value=1, temp="", light="", rolling=False):
+    """色子页。A 键掷骰，温度和照度参与随机因子。"""
+    disp.fill(0)
+    disp.fill_rect(0, 0, 160, 14, ORANGE)
+    disp.text("DICE", 2, 3, BLACK)
+    disp.text("A roll", 104, 3, BLACK)
+
+    _draw_die_face(disp, 14, 28, 78, value)
+
+    if rolling:
+        disp.text("rolling", 102, 30, CYAN)
+    else:
+        bf.draw_text(disp, str(value), 112, 28, 5, YELLOW)
+
+    disp.hline(100, 78, 52, GRAY)
+    disp.text(("T " + (temp or "--"))[:7], 102, 88, CYAN)
+    disp.text(("L " + (light or "--"))[:7], 102, 104, GREEN)
+    if easydisp:
+        easydisp.text("温度+照度", 20, 112, GRAY, size=12, show=False)
+    else:
+        disp.text("sensor rand", 12, 114, GRAY)
     disp.show()
 
 

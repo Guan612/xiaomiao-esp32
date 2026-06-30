@@ -33,6 +33,7 @@ class EasyDisplay:
                  size: int = None,
                  auto_wrap: bool = False,
                  half_char: bool = True,
+                 native_ascii: bool = True,
                  line_spacing: int = 0,
                  *args, **kwargs):
         """
@@ -81,6 +82,7 @@ class EasyDisplay:
         self.size = size
         self.auto_wrap = auto_wrap
         self.half_char = half_char
+        self.native_ascii = native_ascii
         self.line_spacing = line_spacing
         self.font_size = None
         self.font_bmf_info = None
@@ -365,6 +367,15 @@ class EasyDisplay:
 
             # 超过范围的字符不会显示
             if x > dp.width or y > dp.height:
+                continue
+
+            if (self._buffer and color_type == "RGB565" and half_char and
+                    self.native_ascii and ord(char) < 128 and
+                    font_size == self.font_size):
+                if key is None or bg_color != key:
+                    dp.fill_rect(x, y, font_offset, font_size, bg_color)
+                dp.text(char, x, y + ((font_size - 8) // 2), color)
+                x += font_offset
                 continue
 
             # 获取字体的点阵数据

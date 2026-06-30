@@ -32,6 +32,7 @@ r"""WiFi 太空人手表（含天气 + AP 配网 + 中文字库）。
 import sys
 import time
 import gc
+import random
 
 sys.path.append("/lib")
 
@@ -56,6 +57,8 @@ FONT_FILE = "/font/noto_sans_sc_16px_gb2312.v3.bmf"
 WHITE = 0xFFFF
 YELLOW = 0xFFE0
 RED = 0xF800
+
+PAGES = ("clock", "hot", "weather", "dice")
 
 
 def init_display():
@@ -97,6 +100,19 @@ def sync_ntp():
         return False
 
 
+def next_page(page, delta):
+    idx = PAGES.index(page)
+    return PAGES[(idx + delta) % len(PAGES)]
+
+
+def roll_dice():
+    sensor = local_sensor.entropy_sample()
+    seed = sensor["seed"] ^ time.ticks_us() ^ (time.time() << 2)
+    random.seed(seed)
+    sensor["value"] = random.getrandbits(8) % 6 + 1
+    return sensor
+
+
 def main():
     disp = init_display()
     easydisp = init_easydisp(disp)
@@ -126,6 +142,8 @@ def main():
     weather_error = ""
     hot_dirty = True
     weather_dirty = True
+    dice_dirty = True
+    dice = {"value": 1, "temp": "", "light": ""}
 
     keys = KeyNav()
 
@@ -152,23 +170,15 @@ def main():
                     hot_scroll -= 1
                     hot_dirty = True
             if "right" in key_hits:
-                if page == "clock":
-                    page = "hot"
-                    hot_dirty = True
-                elif page == "hot":
-                    page = "weather"
-                    weather_dirty = True
-                else:
-                    page = "clock"
+                page = next_page(page, 1)
+                hot_dirty = True
+                weather_dirty = True
+                dice_dirty = True
             if "left" in key_hits:
-                if page == "clock":
-                    page = "weather"
-                    weather_dirty = True
-                elif page == "weather":
-                    page = "hot"
-                    hot_dirty = True
-                else:
-                    page = "clock"
+                page = next_page(page, -1)
+                hot_dirty = True
+                weather_dirty = True
+                dice_dirty = True
             if "b" in key_hits:
                 page = "clock"
             if page == "hot" and "a" in key_hits:
@@ -207,6 +217,21 @@ def main():
                 else:
                     weather_error = "离线不可用"
                     weather_dirty = True
+            if page == "dice" and "a" in key_hits:
+                try:
+                    for i in range(5):
+                        ui.draw_dice_page(
+                            disp, easydisp, (time.ticks_ms() + i) % 6 + 1,
+                            dice.get("temp", ""), dice.get("light", ""),
+                            rolling=True,
+                        )
+                        time.sleep_ms(55)
+                    dice = roll_dice()
+                except Exception as e:
+                    print("dice roll fail:", e)
+                    dice = {"value": random.getrandbits(8) % 6 + 1,
+                            "temp": "", "light": ""}
+                dice_dirty = True
 
         now = time.localtime()
         if time.ticks_diff(time.ticks_ms(), last_sensor) >= 2000:
@@ -228,6 +253,10 @@ def main():
             ui.draw_weather_page(disp, easydisp, ip, wlan is not None, weather_data,
                               err=weather_error)
             weather_dirty = False
+        elif page == "dice" and dice_dirty:
+            ui.draw_dice_page(disp, easydisp, dice.get("value", 1),
+                              dice.get("temp", ""), dice.get("light", ""))
+            dice_dirty = False
         gc.collect()
 
         # 定时 NTP（每小时）
