@@ -60,6 +60,7 @@ YELLOW = 0xFFE0
 RED = 0xF800
 
 PAGES = ("setup", "clock", "online", "weather", "dice")
+INPUT_POLL_MS = 35
 
 
 def init_display():
@@ -202,6 +203,8 @@ def main():
     setup_dirty = True
     dice_dirty = True
     dice = {"value": 1}
+    last_page = None
+    last_astro_frame = -1
 
     keys = KeyNav()
 
@@ -227,6 +230,7 @@ def main():
         if key_hits:
             if "b_long" in key_hits:
                 page = "clock"
+                last_page = None
                 online_mode = "menu"
                 online_dirty = True
                 weather_dirty = True
@@ -254,12 +258,14 @@ def main():
                     online_dirty = True
             if "right" in key_hits:
                 page = next_page(page, 1, pages)
+                last_page = None
                 online_dirty = True
                 weather_dirty = True
                 setup_dirty = True
                 dice_dirty = True
             if "left" in key_hits:
                 page = next_page(page, -1, pages)
+                last_page = None
                 online_dirty = True
                 weather_dirty = True
                 setup_dirty = True
@@ -270,6 +276,7 @@ def main():
                     online_dirty = True
                 else:
                     page = "clock"
+                    last_page = None
             if page == "online" and "a" in key_hits:
                 if online_mode == "menu":
                     online_mode = "detail"
@@ -340,9 +347,10 @@ def main():
         if page == "setup" and setup_dirty:
             ui.draw_setup_page(disp, easydisp, portal.AP_SSID, portal.AP_IP)
             setup_dirty = False
-        elif page == "clock":
+        elif page == "clock" and (last_page != page or astro_frame != last_astro_frame):
             ui.draw_clock(disp, easydisp, now, ip, wlan is not None,
                        weather_data, astro_frame, local_temp)
+            last_astro_frame = astro_frame
         elif page == "online" and online_dirty:
             if online_mode == "menu":
                 ui.draw_online_menu(
@@ -362,6 +370,7 @@ def main():
         elif page == "dice" and dice_dirty:
             ui.draw_dice_page(disp, easydisp, dice.get("value", 1))
             dice_dirty = False
+        last_page = page
         gc.collect()
 
         if not wlan and wmgr.load_creds() and time.ticks_diff(
@@ -380,6 +389,7 @@ def main():
                 print("[wifi] recovered:", ip)
                 pages = ("clock", "online", "weather", "dice")
                 page = "clock"
+                last_page = None
                 online_dirty = True
                 weather_dirty = True
                 setup_dirty = True
@@ -419,11 +429,11 @@ def main():
             cond = wx.condition_cn(weather_data["cond"]) or weather_data["cond"][:12]
             web.set_state(weather="%s %s" % (weather_data["temp"], cond))
 
-        # 【关键】用 WebUI.poll 替代原 sleep_ms：轮询期间仍可响应 HTTP 请求
+        # 按键用更短轮询间隔；太空人动画仍按 FRAME_MS 节奏刷新。
         if web:
-            action = web.poll(astro_icon.FRAME_MS)
+            action = web.poll(INPUT_POLL_MS)
         else:
-            time.sleep_ms(astro_icon.FRAME_MS)
+            time.sleep_ms(INPUT_POLL_MS)
             action = None
 
         # 动作分发
