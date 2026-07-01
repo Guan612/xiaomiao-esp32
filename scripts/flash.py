@@ -17,6 +17,8 @@ import os
 import subprocess
 import sys
 
+import _upload_via_serial as raw_serial
+
 # 端口：Windows 通常是 COMx，按需改；--port 也可在命令行覆盖
 DEFAULT_PORT = os.environ.get("ESP32_PORT", "COM3")
 
@@ -70,9 +72,50 @@ def flash_preset(port, name):
 
 
 def upload(port, path, dest=None):
-    """上传脚本/目录到板子。默认放到板子根目录。"""
+    """上传脚本/目录到板子。默认放到板子根目录。
+
+    默认走 pyserial + raw REPL，避免 main.py 自启后 mpremote 握手不稳。
+    如需临时回退 mpremote，可设置 ESP32_UPLOAD=mpremote。
+    """
+    if os.environ.get("ESP32_UPLOAD") == "mpremote":
+        upload_mpremote(port, path, dest)
+        return
+
+    if not os.path.exists(path):
+        sys.exit(f"找不到本地路径: {path}")
+
     if os.path.isdir(path):
-        run(mpremote_args(port, "cp", path, ":/"))
+        base = os.path.basename(os.path.normpath(path))
+        remote_base = dest or f":/{base}"
+        for root, _dirs, files in os.walk(path):
+            files.sort()
+            rel_dir = os.path.relpath(root, path)
+            for name in files:
+                local = os.path.join(root, name)
+                rel = name if rel_dir == "." else os.path.join(rel_dir, name)
+                remote = remote_join(remote_base, rel)
+                print("raw upload:", local, "->", remote)
+                if not raw_serial.upload_file(port, local, remote):
+                    sys.exit(1)
+    else:
+        dest = dest or f":/{os.path.basename(path)}"
+        print("raw upload:", path, "->", dest)
+        if not raw_serial.upload_file(port, path, dest):
+            sys.exit(1)
+
+
+def remote_join(base, rel):
+    prefix = ":/" if base.startswith(":/") else "/"
+    base_path = base[1:] if base.startswith(":") else base
+    base_path = "/" + base_path.strip("/")
+    rel_path = rel.replace(os.sep, "/").strip("/")
+    return prefix + "/".join([base_path.strip("/"), rel_path])
+
+
+def upload_mpremote(port, path, dest=None):
+    """旧上传路径：保留给调试/对比。"""
+    if os.path.isdir(path):
+        run(mpremote_args(port, "cp", path, dest or ":/"))
     else:
         dest = dest or f":/{os.path.basename(path)}"
         run(mpremote_args(port, "cp", path, dest))

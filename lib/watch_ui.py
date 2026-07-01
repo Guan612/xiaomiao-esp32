@@ -164,10 +164,10 @@ def draw_hot_comment(disp, easydisp, ip, wifi_ok, text, loading=False, err="",
 def draw_online_menu(disp, easydisp, services, selected=0):
     """在线大全首页：上下移动，A 进入。"""
     disp.fill(0)
-    disp.fill_rect(0, 0, 160, 14, BLUE)
-    disp.text("ONLINE", 2, 3, WHITE)
+    disp.fill_rect(0, 0, 160, 15, BLUE)
+    disp.text("INFO", 3, 4, WHITE)
     disp.text("A OK", 122, 3, YELLOW)
-    disp.hline(0, 18, 160, GRAY)
+    disp.hline(0, 17, 160, GRAY)
 
     total = len(services)
     if selected < 0:
@@ -180,22 +180,25 @@ def draw_online_menu(disp, easydisp, services, selected=0):
     if top > max(0, total - 5):
         top = max(0, total - 5)
 
-    y = 24
+    y = 22
     for idx in range(top, min(total, top + 5)):
         item = services[idx]
         active = idx == selected
         if active:
-            disp.fill_rect(0, y - 2, 160, 18, ORANGE)
-            disp.text(">", 3, y + 2, WHITE)
+            disp.fill_rect(0, y - 1, 160, 19, ORANGE)
+            disp.text(">", 4, y + 4, BLACK)
             color = WHITE
         else:
+            disp.fill_rect(0, y - 1, 160, 19, 0x1082 if idx % 2 else BLACK)
             color = WHITE
-        title = item.get("title", "")[:8]
+        marker = "%02d" % (idx + 1)
+        disp.text(marker, 18, y + 4, BLACK if active else CYAN)
+        title = item.get("title", "")[:7]
         if easydisp:
-            easydisp.text(title, 18, y, color, show=False)
+            easydisp.text(title, 48, y + 1, color, show=False)
         else:
-            disp.text(title[:15], 18, y + 2, color)
-        y += 20
+            disp.text(title[:12], 48, y + 4, color)
+        y += 21
     disp.show()
 
 
@@ -203,19 +206,21 @@ def draw_online_detail(disp, easydisp, title, lines, loading=False, err="",
                        scroll=0):
     """在线大全详情页：A 刷新，B 返回。"""
     disp.fill(0)
-    disp.fill_rect(0, 0, 160, 14, BLUE)
-    disp.text("ON", 2, 3, WHITE)
-    disp.text("A fresh B back", 42, 3, YELLOW)
+    disp.fill_rect(0, 0, 160, 15, BLUE)
+    disp.text("INFO", 3, 4, WHITE)
+    disp.text("A fresh B back", 42, 4, YELLOW)
 
     if loading:
+        disp.hline(0, 18, 160, GRAY)
         if easydisp:
-            easydisp.text("加载中", 54, 50, CYAN, show=False)
+            easydisp.text("加载中", 54, 48, CYAN, show=False)
         else:
             disp.text("loading...", 40, 54, CYAN)
     elif err:
+        disp.hline(0, 18, 160, GRAY)
         if easydisp:
-            easydisp.text(err, 8, 46, RED, show=False)
-            easydisp.text("按A重试", 8, 72, GRAY, show=False)
+            easydisp.text(err, 8, 42, RED, show=False)
+            easydisp.text("按A重试", 8, 66, GRAY, show=False)
         else:
             disp.text(err[:18], 8, 50, RED)
             disp.text("Press A retry", 8, 72, GRAY)
@@ -223,19 +228,36 @@ def draw_online_detail(disp, easydisp, title, lines, loading=False, err="",
         disp.hline(0, 18, 160, GRAY)
         all_lines = []
         for item in lines:
-            all_lines.extend(wrap_text(item, max_units=18))
+            prefix = ""
+            body = item
+            dot = item.find(". ", 0, 4)
+            if dot > 0 and item[:dot].isdigit():
+                prefix, body = item[:dot + 1], item[dot + 2:].strip()
+            wrapped = wrap_text(body, max_units=17 if prefix else 18)
+            for n, line in enumerate(wrapped):
+                all_lines.append((prefix if n == 0 else "  ", line))
         max_scroll = max(0, len(all_lines) - 5)
         if scroll < 0:
             scroll = 0
         if scroll > max_scroll:
             scroll = max_scroll
-        y = 24
-        for line in all_lines[scroll:scroll + 5]:
-            if easydisp:
-                easydisp.text(line, 8, y, WHITE, show=False)
+        y = 22
+        for prefix, line in all_lines[scroll:scroll + 5]:
+            disp.fill_rect(0, y - 1, 160, 19, BLACK)
+            if prefix.strip():
+                disp.text(prefix[:2], 3, y + 4, CYAN)
+                x = 24
             else:
-                disp.text(line[:18], 8, y, WHITE)
-            y += 18
+                x = 8
+            if easydisp:
+                easydisp.text(line, x, y + 1, WHITE, show=False)
+            else:
+                disp.text(line[:18], x, y + 4, WHITE)
+            y += 21
+        if max_scroll:
+            pct = int(88 * scroll / max_scroll) if max_scroll else 0
+            disp.vline(158, 24, 88, GRAY)
+            disp.fill_rect(157, 24 + pct, 3, 14, CYAN)
     else:
         if easydisp:
             easydisp.text(title[:7], 8, 34, CYAN, show=False)
@@ -394,13 +416,13 @@ def show_flash_mode_screen(disp, easydisp):
     disp.fill_rect(0, 0, 160, 14, ORANGE)
     if easydisp:
         easydisp.text("刷写模式", 4, -1, BLACK, show=False)
-        easydisp.text("USB 上传就绪", 4, 26, CYAN, show=False)
+        easydisp.text("Raw上传就绪", 4, 26, CYAN, show=False)
         easydisp.text("电脑执行:", 4, 50, WHITE, show=False)
         easydisp.text("flash.py upload", 4, 68, YELLOW, show=False)
         easydisp.text("传完按复位", 4, 96, GRAY, show=False)
     else:
         disp.text("FLASH MODE", 2, 3, BLACK)
-        disp.text("USB upload ready", 2, 30, CYAN)
+        disp.text("Raw upload ready", 2, 30, CYAN)
         disp.text("Run on PC:", 2, 50, WHITE)
         disp.text("flash.py upload", 2, 62, YELLOW)
         disp.text("Reset when done", 2, 96, GRAY)

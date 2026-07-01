@@ -113,10 +113,15 @@ def upload_file(port, local, remote, chunk=300, batch=4):
             mkdir_code = (
                 "import os\n"
                 "p=%r\n"
-                "try:\n"
-                "    os.mkdir(p)\n"
-                "except OSError:\n"
-                "    pass\n"
+                "cur=''\n"
+                "for part in p.strip('/').split('/'):\n"
+                "    if not part:\n"
+                "        continue\n"
+                "    cur+='/' + part\n"
+                "    try:\n"
+                "        os.mkdir(cur)\n"
+                "    except OSError:\n"
+                "        pass\n"
                 "print('parent',p,'ok')\n"
             ) % parent
             r = exec_raw(s, mkdir_code)

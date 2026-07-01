@@ -79,6 +79,30 @@ def init_easydisp(disp):
         return None
 
 
+def enter_flash_mode(disp, easydisp, web=None):
+    """进入 USB 上传/刷写待机：停网络和 HTTP，只保留可打断的轻循环。"""
+    print("[flash] entering USB flash/upload mode")
+    if web:
+        try:
+            web.close()
+        except Exception as e:
+            print("[flash] web close fail:", e)
+    try:
+        import network
+        for iface in (network.WLAN(network.STA_IF), network.WLAN(network.AP_IF)):
+            try:
+                iface.active(False)
+            except Exception:
+                pass
+    except Exception as e:
+        print("[flash] network off fail:", e)
+    gc.collect()
+    ui.show_flash_mode_screen(disp, easydisp)
+    print("[flash] ready: run `uv run python scripts/flash.py upload <local> [:/remote]`")
+    while True:
+        time.sleep(1)   # Ctrl-C 能干净打断，电脑端随后进入 raw REPL
+
+
 def sync_ntp():
     """NTP 对时，返回是否成功。"""
     try:
@@ -138,9 +162,7 @@ def main():
     if wifi_setup_requested(disp, easydisp):
         ui.show_status(disp, easydisp, "WiFi Setup...", YELLOW)
         if wmgr.run_setup(disp) == "flash":
-            ui.show_flash_mode_screen(disp, easydisp)
-            while True:
-                time.sleep(1)
+            enter_flash_mode(disp, easydisp)
     ui.show_status(disp, easydisp, "Connecting WiFi...", YELLOW)
     wlan, ip = wmgr.ensure_connected(
         disp,
@@ -407,7 +429,7 @@ def main():
         # 动作分发
         if action == "flash":
             print("[webui] entering flash mode")
-            break  # 跳出循环，进入刷写模式待机
+            enter_flash_mode(disp, easydisp, web)
         if action == "reboot":
             print("[webui] reboot")
             machine.reset()
@@ -422,12 +444,6 @@ def main():
             except Exception:
                 pass
             machine.reset()
-
-    # ---- 刷写模式待机：不再碰网络，软 sleep 等 USB 上传 ----
-    ui.show_flash_mode_screen(disp, easydisp)
-    while True:
-        time.sleep(1)   # Ctrl-C 能在此干净打断 → flash.py upload 可靠进 raw REPL
-
 
 if __name__ == "__main__":
     main()

@@ -241,6 +241,21 @@ class CaptivePortalUI:
             pass
         return action
 
+    def close(self):
+        """停止 AP 配网页，释放 socket 并关闭热点。"""
+        try:
+            self._poller.unregister(self._srv)
+        except Exception:
+            pass
+        try:
+            self._srv.close()
+        except Exception:
+            pass
+        try:
+            self.ap.active(False)
+        except Exception:
+            pass
+
 
 def _read_request(conn):
     """读取完整 HTTP 请求，返回 (method, path, body) 或 None。
@@ -371,7 +386,7 @@ def _handle_post(path, body):
                 "200 OK",
                 webui_mod.render_done(
                     "进入刷写模式",
-                    "屏幕将提示 USB 上传就绪。",
+                    "网络和控制台将关闭，请用 USB raw REPL 上传。",
                 ).encode(),
             )
         if cmd == "reboot":

@@ -7,7 +7,7 @@
 
 在已连 WiFi（STA 模式）运行期间，监听 80 端口。浏览器打开屏幕上显示的
 IP（如 http://192.168.x.x）即可看到控制面板，支持：
-  - 进入刷写模式（停主循环，让 USB flash.py upload 能可靠打断）
+  - 进入刷写模式（停网络/HTTP，电脑端 flash.py upload 走 raw REPL）
   - 重启板子
   - 重新配网（删凭据 + 重启 → 回到 AP 配网流程）
   - 立即刷新天气 & 对时
@@ -216,7 +216,7 @@ font-size:15px;font-weight:bold}
 %s
 </form>
 </div>
-<div class="hint">刷写模式：进入后屏幕提示就绪，电脑上执行<br>
+<div class="hint">刷写模式：进入后会停网络和控制台，电脑上执行<br>
 <code>uv run python scripts/flash.py upload &lt;文件&gt;</code> 即可</div>
 %s
 </body></html>""") % (
@@ -226,7 +226,7 @@ font-size:15px;font-weight:bold}
         _render_wifi_form("添加 WiFi", "保存 WiFi 并重启", scan=scan_wifi)
         if show_wifi_form else "",
         _button("🌤️ 立即刷新天气 &amp; 对时", "resync", "b-resync") +
-        _button("🔌 进入刷写模式（停主程序，用 USB 上传）", "flash", "b-flash") +
+        _button("🔌 进入刷写模式（raw REPL 上传）", "flash", "b-flash") +
         _button("📡 进入 AP 配网", "rewifi", "b-rewifi") +
         _button("🔄 重启板子", "reboot", "b-reboot"),
         scan_script,
@@ -531,6 +531,21 @@ class WebUI:
             pass
         return action
 
+    def close(self):
+        """停止 HTTP 控制台，释放监听 socket。"""
+        try:
+            if self._poller and self._srv:
+                self._poller.unregister(self._srv)
+        except Exception:
+            pass
+        try:
+            if self._srv:
+                self._srv.close()
+        except Exception:
+            pass
+        self._srv = None
+        self._poller = None
+
     def _handle(self):
         """处理一次连接，返回动作或 None。"""
         try:
@@ -557,7 +572,7 @@ class WebUI:
                 action = cmd if cmd in ("flash", "reboot", "resync", "rewifi") else None
                 # 先回响应，再让主循环执行动作
                 msg = {
-                    "flash": "已进入刷写模式。屏幕将提示就绪，请用 USB 上传文件。",
+                    "flash": "已进入刷写模式。网络和控制台将关闭，请用 USB raw REPL 上传。",
                     "reboot": "板子正在重启…",
                     "resync": "正在刷新天气 &amp; 对时，稍后自动返回。",
                     "rewifi": "已清除 WiFi，板子重启后进入配网。",
