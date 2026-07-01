@@ -4,7 +4,7 @@
   {"networks": [{"ssid": "...", "password": "..."}]}  # 多 WiFi 格式
 由 captive_portal.py 配网页写入，本模块负责读取并尝试连接。
 
-入口：ensure_connected(disp) —— 读凭据→连 STA→失败/无则进配网。
+入口：ensure_connected(disp) —— 读凭据→连 STA→失败/无则按需进配网。
 返回 (wlan, ip)；进配网后不会返回（配网成功会重启）。
 """
 import time
@@ -149,23 +149,39 @@ def connect_sta(ssid, password, timeout_ms=25000, retries=2):
     return None, None
 
 
-def ensure_connected(disp=None):
-    """顶层入口：读凭据→连→失败/无则进配网。返回 (wlan, ip)。"""
+def run_setup(disp=None):
+    """进入 AP 配网。正常配网成功会重启，不会返回。"""
+    portal.run(disp)
+    return None, None
+
+
+def ensure_connected(disp=None, setup_on_fail=True, timeout_ms=25000,
+                     retries=2, scan=True, max_creds=0):
+    """顶层入口：读凭据→连→失败/无则可选进配网。返回 (wlan, ip)。
+
+    setup_on_fail=False 用于离线优先的应用：没有网络时尽快返回，让本地工具
+    继续可用，而不是卡在 WiFi 配网或长时间重试里。max_creds>0 时只快速
+    尝试前几个已保存网络，避免保存网络很多时逐个超时。
+    """
     creds = load_creds()
     if creds:
-        creds = _prioritize_visible_creds(creds)
+        if scan:
+            creds = _prioritize_visible_creds(creds)
+        if max_creds > 0:
+            creds = creds[:max_creds]
         total = len(creds)
         for idx, (ssid, password) in enumerate(creds, 1):
             print("[wifi] stored network", idx, "of", total)
-            wlan, ip = connect_sta(ssid, password)
+            wlan, ip = connect_sta(ssid, password, timeout_ms=timeout_ms,
+                                   retries=retries)
             if wlan:
                 _remember_success(creds, ssid)
                 return wlan, ip
-        # 所有已保存 WiFi 都连不上（密码改了/不在范围）→ 进配网追加/更新
-        print("[wifi] all stored creds failed, entering setup")
+        print("[wifi] all stored creds failed")
     else:
-        print("[wifi] no stored creds, entering setup")
-    # 进配网（内部会阻塞直到配完重启，正常不返回）
-    portal.run(disp)
-    # 万一 run() 异常返回，返回 None 让上层进离线模式
+        print("[wifi] no stored creds")
+    if setup_on_fail:
+        print("[wifi] entering setup")
+        return run_setup(disp)
+    print("[wifi] offline mode")
     return None, None

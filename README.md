@@ -86,7 +86,8 @@ uv run python scripts/flash.py repl     # 进 REPL 观察 / 交互
 连 WiFi 后 NTP 自动对时；天气页可手动刷新天气（免 key，按 IP 定位城市）。
 
 **第一步：配置（首次用 AP 配网，见下方「AP 配网」）。**
-开机后板子自动开热点 `XiaoMiao-Setup`，手机连上即弹配网页选 WiFi、输密码，
+复位后屏幕短暂显示 `A:WiFi setup`，这时按住/点按 `A` 才会开热点 `XiaoMiao-Setup`；
+手机连上即弹配网页选 WiFi、输密码，
 存盘重启后自动连接。NTP/天气等不变量配置仍在 `apps/wifi_config.py`（可选改）。
 
 **第二步：部署：**
@@ -110,8 +111,10 @@ uv run python scripts/flash.py upload lib\webui.py
 uv run python scripts/flash.py upload font\noto_sans_sc_16px_gb2312.v3.bmf :/font/noto_sans_sc_16px_gb2312.v3.bmf
 ```
 
-**第三步：** 按一下 EN 复位 → 首次会开热点，手机连 `XiaoMiao-Setup` 配网 →
-重启后自动连 WiFi → 对时 → 显示太空人。天气页按 `A` 手动刷新天气。
+**第三步：** 按一下 EN 复位 → 需要配网时在 `A:WiFi setup` 提示期间按 `A` →
+手机连 `XiaoMiao-Setup` 配网 → 重启后自动连 WiFi → 对时 → 显示太空人。
+不按 `A` 会直接进入离线优先模式，本地页（如色子）照常可用。
+天气页按 `A` 手动刷新天气。
 
 **按键界面：**
 
@@ -140,23 +143,29 @@ uv run python scripts/flash.py upload font\noto_sans_sc_16px_gb2312.v3.bmf :/fon
 - 填英文名（如 `"Beijing"`、`"Shanghai"`）定位更准
 - 状况含晴/云/雨/雪/雷/雾，自动选对应像素图标
 
-> WiFi 不通时进入离线模式，时间从 0 点起，天气显示 loading。
+> WiFi 不通时会快速进入离线模式，同时自动开启 `Xueersi-Setup` 热点和
+> `192.168.4.1` 控制台；本地工具仍可继续使用。
 > NTP 每小时刷新；天气先在天气页按 `A` 手动刷新，已有天气数据后才会按 `WEATHER_INTERVAL` 自动刷新。
+
+**Web 控制台：** 在线后浏览器打开屏幕上的 IP，可在同一个控制台里刷新天气/对时、
+进入刷写模式、重启、添加/更新 WiFi，以及切换/删除已保存的 WiFi。
+AP 配网页也复用这套控制台界面。
 
 **热评数据源：** [yunapi.cn 网易云热评 API](https://yunapi.cn/api/sjwyyrp)。
 热评页需要联网，接口不可达时会提示获取失败。
 
 ## 📡 AP 配网（首次连接 WiFi）
 
-不再需要把 WiFi 密码写死在代码里刷进板子。首次开机（或换 WiFi）时，板子
-**自己开热点**，手机连上后**自动弹出配网页**，选 WiFi、输密码即可。
+不再需要把 WiFi 密码写死在代码里刷进板子。首次开机（或换 WiFi）时，复位后
+在 `A:WiFi setup` 提示期间按 `A`，板子才会**自己开热点**；手机连上后
+**自动弹出统一控制台**，选 WiFi、输密码即可；这个页面也提供刷写模式和重启入口。
 
-**触发条件：** 板子上没有存过 WiFi 凭据，或保存过的 WiFi 全都连不上（密码改了/不在范围）。
+**触发条件：** 启动提示期间按 `A`。这样没网络时不会阻塞本地工具使用。
 可以记住多个 WiFi，比如家里和公司各配一次；开机会按保存记录依次尝试，连上后下次优先试这个。
 
 ### 使用步骤
 
-1. **上传后按 EN 复位。** 屏幕显示红色 `WiFi Setup` 状态栏。
+1. **上传后按 EN 复位，并在 `A:WiFi setup` 提示期间按 `A`。** 屏幕显示红色 `WiFi Setup` 状态栏。
 2. **手机连热点 `XiaoMiao-Setup`**（无密码）。iOS/Android/Windows 连上后
    会**自动弹出配网页**；没弹的话，浏览器随便输个网址（如 `xiao.com`）
    或直接访问 `192.168.4.1` 也会被劫持到配网页。
@@ -173,7 +182,7 @@ uv run python scripts/flash.py upload font\noto_sans_sc_16px_gb2312.v3.bmf :/fon
 
 重新配网有两种方式：
 
-- **错误密码重连失败会自动进配网：** 故意输错密码，板子连不上 → 再次进配网。
+- **启动时按 A 进配网：** 复位后在 `A:WiFi setup` 提示期间按 `A`。
 - **手动删凭据（最干净）：** 进 REPL 删文件后复位——
   ```bash
   uv run python scripts/flash.py repl

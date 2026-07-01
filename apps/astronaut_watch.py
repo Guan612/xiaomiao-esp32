@@ -43,6 +43,7 @@ import astro_icon  # noqa: E402
 import easydisplay as ed  # noqa: E402
 import weather as wx  # noqa: E402
 import wifi_manager as wmgr  # noqa: E402
+import captive_portal as portal  # noqa: E402
 import webui as webui_mod  # noqa: E402
 import local_sensor  # noqa: E402
 import netease_hot  # noqa: E402
@@ -58,7 +59,7 @@ WHITE = 0xFFFF
 YELLOW = 0xFFE0
 RED = 0xF800
 
-PAGES = ("clock", "hot", "weather", "dice")
+PAGES = ("setup", "clock", "hot", "weather", "dice")
 
 
 def init_display():
@@ -100,9 +101,9 @@ def sync_ntp():
         return False
 
 
-def next_page(page, delta):
-    idx = PAGES.index(page)
-    return PAGES[(idx + delta) % len(PAGES)]
+def next_page(page, delta, pages=PAGES):
+    idx = pages.index(page)
+    return pages[(idx + delta) % len(pages)]
 
 
 def roll_dice():
@@ -112,20 +113,48 @@ def roll_dice():
     return {"value": random.getrandbits(8) % 6 + 1}
 
 
+def wifi_setup_requested(disp, easydisp, window_ms=1800):
+    """启动时短暂监听 A 键；按下才进入会阻塞的 AP 配网。"""
+    ui.show_status(disp, easydisp, "A:WiFi setup", YELLOW)
+    try:
+        a_key = Pin(34, Pin.IN, Pin.PULL_UP)
+        deadline = time.ticks_add(time.ticks_ms(), window_ms)
+        while time.ticks_diff(deadline, time.ticks_ms()) > 0:
+            if a_key.value() == 0:
+                return True
+            time.sleep_ms(40)
+    except Exception as e:
+        print("wifi setup key check fail:", e)
+    return False
+
+
 def main():
     disp = init_display()
     easydisp = init_easydisp(disp)
     ui.show_status(disp, easydisp, "Booting...", WHITE)
 
-    # 连 WiFi：无凭据或连不上时自动进入 AP 配网（配网成功后会重启）
+    # 离线优先：本地工具（如色子）不能因为无网络/未配网而被启动流程卡住。
+    # 如需配网，复位后在启动提示期间按 A 进入 AP 配网（配网成功后会重启）。
+    if wifi_setup_requested(disp, easydisp):
+        ui.show_status(disp, easydisp, "WiFi Setup...", YELLOW)
+        if wmgr.run_setup(disp) == "flash":
+            ui.show_flash_mode_screen(disp, easydisp)
+            while True:
+                time.sleep(1)
     ui.show_status(disp, easydisp, "Connecting WiFi...", YELLOW)
-    wlan, ip = wmgr.ensure_connected(disp)
+    wlan, ip = wmgr.ensure_connected(
+        disp,
+        setup_on_fail=False,
+        timeout_ms=6000,
+        retries=1,
+        scan=False,
+        max_creds=1,
+    )
     if wlan:
         ui.show_status(disp, easydisp, "Syncing time...", YELLOW)
         sync_ntp()
     else:
-        ui.show_status(disp, easydisp, "No WiFi - offline", RED)
-        time.sleep(1)
+        ui.show_status(disp, easydisp, "Offline AP starting", RED)
 
     # 天气 HTTPS 在当前固件/网络上不稳定；不在启动阶段阻塞主界面。
     weather_data = None
@@ -134,19 +163,21 @@ def main():
     last_weather = time.time()
     last_sensor = time.ticks_add(time.ticks_ms(), -2000)
     local_temp = ""
-    page = "clock"
+    page = "clock" if wlan else "setup"
+    pages = ("clock", "hot", "weather", "dice") if wlan else PAGES
     hot_comment = None
     hot_error = ""
     hot_scroll = 0
     weather_error = ""
     hot_dirty = True
     weather_dirty = True
+    setup_dirty = True
     dice_dirty = True
     dice = {"value": 1}
 
     keys = KeyNav()
 
-    # WebUI 控制面板（仅在线时启动；离线无意义）
+    # 在线用 STA 控制台；离线自动开 AP 控制台，手机连热点即可配网。
     web = None
     if wlan:
         try:
@@ -155,6 +186,12 @@ def main():
             ssid = ""
         web = webui_mod.WebUI(disp, easydisp)
         web.set_state(ip=ip, ssid=ssid)
+    else:
+        try:
+            web = portal.CaptivePortalUI()
+        except Exception as e:
+            print("offline portal start fail:", e)
+            web = None
 
     while True:
         key_hits = keys.poll()
@@ -169,14 +206,16 @@ def main():
                     hot_scroll -= 1
                     hot_dirty = True
             if "right" in key_hits:
-                page = next_page(page, 1)
+                page = next_page(page, 1, pages)
                 hot_dirty = True
                 weather_dirty = True
+                setup_dirty = True
                 dice_dirty = True
             if "left" in key_hits:
-                page = next_page(page, -1)
+                page = next_page(page, -1, pages)
                 hot_dirty = True
                 weather_dirty = True
+                setup_dirty = True
                 dice_dirty = True
             if "b" in key_hits:
                 page = "clock"
@@ -239,7 +278,10 @@ def main():
                 local_temp = ""
             last_sensor = time.ticks_ms()
         astro_frame = time.ticks_ms() // astro_icon.FRAME_MS
-        if page == "clock":
+        if page == "setup" and setup_dirty:
+            ui.draw_setup_page(disp, easydisp, portal.AP_SSID, portal.AP_IP)
+            setup_dirty = False
+        elif page == "clock":
             ui.draw_clock(disp, easydisp, now, ip, wlan is not None,
                        weather_data, astro_frame, local_temp)
         elif page == "hot" and hot_dirty:

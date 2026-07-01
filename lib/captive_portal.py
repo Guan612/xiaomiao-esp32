@@ -8,8 +8,9 @@
 工作原理：
   1. 开放热点 "Xueersi-Setup"（无密码，IP 固定 192.168.4.1）
   2. HTTP 服务（select 轮询 TCP/80）：
-       GET  /    → 返回配网页（手动输 SSID + 密码）
-       POST /save → 追加/更新 /wifi.json → 返回"已保存，重启中"页 → 重启
+       GET  /    → 返回统一控制台（含配网表单）
+       POST /wifi → 追加/更新 /wifi.json → 返回"已保存，重启中"页 → 重启
+       POST /action → 刷写模式 / 重启
 
 入口：run(disp=None) —— 阻塞直到配网完成并重启。
 """
@@ -19,6 +20,7 @@ import network
 import json
 import uselect
 import machine
+import webui as webui_mod
 
 # ---- 配网常量 ----
 AP_SSID = "Xueersi-Setup"
@@ -67,48 +69,15 @@ def _http_response(status, body, content_type="text/html", extra_headers=""):
 
 
 def _render_setup_page():
-    """渲染配网页 HTML（手动输入，手机友好）。"""
-    return ("""<!DOCTYPE html><html><head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>XiaoMiao 配网</title>
-<style>
-body{font-family:-apple-system,sans-serif;background:#0d1b2a;color:#e0e1dd;
-margin:0;padding:20px;max-width:420px;margin:0 auto}
-h2{color:#48cae4;text-align:center}
-.card{background:#1b263b;border-radius:12px;padding:18px;margin-top:14px}
-label{display:block;color:#778da9;font-size:13px;margin:10px 0 4px}
-input{width:100%;box-sizing:border-box;padding:12px;border-radius:8px;
-border:1px solid #415a77;background:#0d1b2a;color:#e0e1dd;font-size:15px}
-button{width:100%;padding:14px;margin-top:18px;border:none;border-radius:8px;
-background:#48cae4;color:#0d1b2a;font-size:16px;font-weight:bold}
-.hint{color:#778da9;font-size:12px;text-align:center;margin-top:10px;line-height:1.6}
-</style></head><body>
-<h2>🚀 XiaoMiao 配网</h2>
-<div class="card">
-<form method="POST" action="/save">
-<label>WiFi 名称 (SSID)</label>
-<input name="ssid" placeholder="输入你的 WiFi 名" required>
-<label>密码</label>
-<input name="password" type="password" placeholder="WiFi 密码">
-<button type="submit">保存并连接</button>
-</form>
-</div>
-<div class="hint">手动输入 WiFi 名和密码<br>保存后板子自动重启连接</div>
-</body></html>""")
+    """渲染统一控制台配网页。"""
+    return webui_mod.render_setup_page(AP_SSID, AP_IP)
 
 
 def _render_done_page():
-    return ("""<!DOCTYPE html><html><head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>已保存</title>
-<style>body{font-family:-apple-system,sans-serif;background:#0d1b2a;color:#e0e1dd;
-text-align:center;padding:60px 20px}
-h2{color:#48cae4}p{color:#778da9}</style></head><body>
-<h2>✅ 已保存</h2><p>板子正在重启并连接 WiFi…</p>
-<p>断开 XiaoMiao-Setup 热点，等待太空人界面出现。</p>
-</body></html>""")
+    return webui_mod.render_done(
+        "已保存",
+        "板子正在重启并连接 WiFi。断开 XiaoMiao-Setup 热点，等待太空人界面出现。",
+    )
 
 
 def _parse_form(body):
@@ -235,10 +204,42 @@ def run(disp=None):
             events = poller.poll(200)  # 200ms 超时
             for sock, _ev in events:
                 if sock == srv_sock:
-                    http_handle(srv_sock)
+                    action = http_handle(srv_sock)
+                    if action == "flash":
+                        return "flash"
         except OSError:
             pass
         time.sleep(0.005)
+
+
+class CaptivePortalUI:
+    """离线运行时 AP 控制后台。
+
+    与 run() 不同，这个类不阻塞主程序；主循环定期 poll()，本地工具还能继续用。
+    """
+
+    def __init__(self):
+        self.ap = start_ap()
+        print("[portal] AP up:", AP_SSID, "ip:", self.ap.ifconfig()[0])
+        self._srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._srv.bind(("0.0.0.0", 80))
+        self._srv.listen(3)
+        self._srv.setblocking(False)
+        self._poller = uselect.poll()
+        self._poller.register(self._srv, uselect.POLLIN)
+        print("[portal] HTTP listening on 80")
+
+    def poll(self, timeout_ms=500):
+        action = None
+        try:
+            events = self._poller.poll(timeout_ms)
+            for sock, _ev in events:
+                if sock == self._srv:
+                    action = http_handle(self._srv)
+        except OSError:
+            pass
+        return action
 
 
 def _read_request(conn):
@@ -305,7 +306,7 @@ def http_handle(srv_sock):
         parsed = _read_request(conn)
         if not parsed:
             conn.close()
-            return
+            return None
         method, path, body = parsed
 
         if method == "GET":
@@ -318,10 +319,24 @@ def http_handle(srv_sock):
 
         conn.send(resp)
         # 保存请求发完响应后重启
-        if method == "POST" and path == "/save":
+        if method == "POST" and path in ("/wifi", "/save"):
             time.sleep(0.5)
             conn.close()
             machine.reset()
+        if method == "POST" and path == "/action":
+            action = webui_mod.parse_form(body).get("cmd", "")
+            if action == "reboot":
+                time.sleep(0.5)
+                conn.close()
+                machine.reset()
+            if action == "flash":
+                return "flash"
+        if method == "POST" and path == "/wifi-action":
+            form = webui_mod.parse_form(body)
+            if form.get("cmd") == "prefer":
+                time.sleep(0.5)
+                conn.close()
+                machine.reset()
     except OSError:
         pass
     finally:
@@ -329,13 +344,14 @@ def http_handle(srv_sock):
             conn.close()
         except Exception:
             pass
+    return None
 
 
 def _handle_post(path, body):
     """处理 POST 请求。"""
     print("[portal] POST", path, "body_len:", len(body))
-    if path == "/save":
-        form = _parse_form(body)
+    if path in ("/wifi", "/save"):
+        form = webui_mod.parse_form(body)
         ssid = form.get("ssid", "").strip()
         password = form.get("password", "")
         print("[portal] parsed ssid=%r" % ssid)
@@ -347,4 +363,51 @@ def _handle_post(path, body):
             )
         _save_creds(ssid, password)
         return _http_response("200 OK", _render_done_page().encode())
+    if path == "/action":
+        form = webui_mod.parse_form(body)
+        cmd = form.get("cmd", "")
+        if cmd == "flash":
+            return _http_response(
+                "200 OK",
+                webui_mod.render_done(
+                    "进入刷写模式",
+                    "屏幕将提示 USB 上传就绪。",
+                ).encode(),
+            )
+        if cmd == "reboot":
+            return _http_response(
+                "200 OK",
+                webui_mod.render_done("正在重启", "板子正在重启。").encode(),
+            )
+        return _http_response(
+            "400 Bad Request",
+            webui_mod.render_done("操作不可用", "AP 配网模式只支持刷写和重启。").encode(),
+        )
+    if path == "/wifi-action":
+        form = webui_mod.parse_form(body)
+        cmd = form.get("cmd", "")
+        ssid = form.get("ssid", "").strip()
+        if cmd == "prefer" and ssid:
+            if webui_mod.prefer_wifi(ssid):
+                return _http_response(
+                    "200 OK",
+                    webui_mod.render_done(
+                        "正在切换 WiFi",
+                        "已设为首选 WiFi，板子正在重启并尝试连接。",
+                    ).encode(),
+                )
+            return _http_response(
+                "404 Not Found",
+                webui_mod.render_done("切换失败", "找不到这个 WiFi。").encode(),
+            )
+        if cmd == "delete" and ssid:
+            webui_mod.delete_wifi(ssid)
+            return _http_response(
+                "200 OK",
+                webui_mod.render_done("WiFi 已删除", "已删除保存的 WiFi。").encode(),
+            )
+        return _http_response(
+            "400 Bad Request",
+            webui_mod.render_done("操作失败", "WiFi 操作无效。").encode(),
+        )
     return _http_response("404 Not Found", b"<h1>404</h1>")

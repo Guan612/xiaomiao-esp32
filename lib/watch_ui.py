@@ -218,6 +218,26 @@ def draw_weather_page(disp, easydisp, ip, wifi_ok, weather_data,
     disp.show()
 
 
+def draw_setup_page(disp, easydisp, ap_ssid, ap_ip):
+    """离线配网提示页。后台 AP 控制台已自动开启。"""
+    disp.fill(0)
+    disp.fill_rect(0, 0, 160, 14, RED)
+    disp.text("OFFLINE SETUP", 2, 3, WHITE)
+    if easydisp:
+        easydisp.text("已开启配网热点", 6, 22, YELLOW, show=False)
+        easydisp.text(ap_ssid[:14], 6, 42, CYAN, show=False)
+        easydisp.text("手机连接后打开", 6, 68, WHITE, show=False)
+        easydisp.text(ap_ip, 6, 88, GREEN, show=False)
+        easydisp.text("右键切换工具", 6, 110, GRAY, show=False)
+    else:
+        disp.text("AP started:", 6, 24, YELLOW)
+        disp.text(ap_ssid[:18], 6, 42, CYAN)
+        disp.text("Open browser:", 6, 68, WHITE)
+        disp.text(ap_ip, 6, 88, GREEN)
+        disp.text("Right: tools", 6, 110, GRAY)
+    disp.show()
+
+
 def _fill_round_rect(disp, x, y, w, h, r, color):
     disp.fill_rect(x + r, y, w - 2 * r, h, color)
     disp.fill_rect(x, y + r, w, h - 2 * r, color)
