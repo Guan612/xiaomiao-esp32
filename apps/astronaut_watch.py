@@ -444,8 +444,39 @@ def main():
             print("[webui] reboot")
             machine.reset()
         if action == "resync":
-            print("[webui] resync ntp")
-            last_ntp = 0       # 触发下一帧立即对时
+            print("[webui] resync ntp + weather")
+            if wlan:
+                if page == "weather":
+                    ui.draw_weather_page(disp, easydisp, ip, True, weather_data,
+                                      loading=True)
+                gc.collect()
+                if sync_ntp():
+                    last_ntp = time.time()
+                try:
+                    new_w = wx.fetch(cfg.WEATHER_CITY)
+                    if new_w:
+                        weather_data = new_w
+                        weather_error = ""
+                        last_weather = time.time()
+                        cond = wx.condition_cn(new_w["cond"]) or new_w["cond"][:12]
+                        if web:
+                            web.set_state(weather="%s %s" % (new_w["temp"], cond))
+                    else:
+                        weather_error = "天气获取失败"
+                        if web:
+                            web.set_state(weather=weather_error)
+                except Exception as e:
+                    print("webui weather refresh fail:", e)
+                    weather_error = "天气获取失败"
+                    if web:
+                        web.set_state(weather=weather_error)
+                weather_dirty = True
+                last_page = None
+            else:
+                weather_error = "离线不可用"
+                if web:
+                    web.set_state(weather=weather_error)
+                weather_dirty = True
         if action == "rewifi":
             print("[webui] clear wifi creds + reboot")
             try:
