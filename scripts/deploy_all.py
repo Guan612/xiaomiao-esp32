@@ -33,6 +33,7 @@ FILES = [
     ("lib/wifi_manager.py",       "/lib/wifi_manager.py"),
     ("lib/captive_portal.py",     "/lib/captive_portal.py"),
     ("lib/webui.py",              "/lib/webui.py"),
+    ("apps/wifi_config.py",       "/wifi_config.py"),
     ("apps/astronaut_watch.py",   "/main.py"),
     ("font/noto_sans_sc_16px_gb2312.v3.bmf", "/font/noto_sans_sc_16px_gb2312.v3.bmf"),
 ]

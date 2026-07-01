@@ -9,7 +9,7 @@
   1. 开放热点 "Xueersi-Setup"（无密码，IP 固定 192.168.4.1）
   2. HTTP 服务（select 轮询 TCP/80）：
        GET  /    → 返回配网页（手动输 SSID + 密码）
-       POST /save → 存 /wifi.json → 返回"已保存，重启中"页 → 重启
+       POST /save → 追加/更新 /wifi.json → 返回"已保存，重启中"页 → 重启
 
 入口：run(disp=None) —— 阻塞直到配网完成并重启。
 """
@@ -150,10 +150,39 @@ def _urldecode(s):
         return out.decode("latin-1")
 
 
+def _load_saved_creds():
+    """读取已保存 WiFi。"""
+    try:
+        with open(WIFI_FILE, "r") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return []
+
+    creds = []
+    seen = set()
+    for item in data.get("networks", []):
+        item_ssid = item.get("ssid", "").strip()
+        item_password = item.get("password", "")
+        if item_ssid and item_ssid not in seen:
+            creds.append({"ssid": item_ssid, "password": item_password})
+            seen.add(item_ssid)
+
+    return creds
+
+
 def _save_creds(ssid, password):
-    """把凭据写到 /wifi.json。"""
+    """追加/更新 WiFi 凭据到 /wifi.json。"""
+    networks = _load_saved_creds()
+    updated = False
+    for item in networks:
+        if item.get("ssid") == ssid:
+            item["password"] = password
+            updated = True
+            break
+    if not updated:
+        networks.insert(0, {"ssid": ssid, "password": password})
     with open(WIFI_FILE, "w") as f:
-        json.dump({"ssid": ssid, "password": password}, f)
+        json.dump({"networks": networks}, f)
 
 
 def run(disp=None):
@@ -175,19 +204,19 @@ def run(disp=None):
             print("[portal] 字体加载失败，回退英文:", e)
 
         disp.fill(0)
-        disp.fill_rect(0, 0, 160, 12, 0xF800)  # 红色状态栏
+        disp.fill_rect(0, 0, 160, 16, 0xF800)  # 红色状态栏
         if easydisp:
-            easydisp.text("WiFi 配网", 2, -2, 0xFFFF, show=False)
-            easydisp.text("请连接热点:", 2, 20, 0xFFFF, show=False)
-            easydisp.text(AP_SSID, 2, 36, 0x07FF, show=False)
-            easydisp.text("浏览器打开:", 2, 56, 0xFFFF, show=False)
-            easydisp.text(AP_IP, 2, 72, 0x07E0, show=False)
+            easydisp.text("WiFi 配网", 2, 0, 0xFFFF, show=False)
+            easydisp.text("请连接热点:", 2, 22, 0xFFFF, show=False)
+            easydisp.text(AP_SSID, 2, 40, 0x07FF, show=False)
+            easydisp.text("浏览器打开:", 2, 62, 0xFFFF, show=False)
+            easydisp.text(AP_IP, 2, 80, 0x07E0, show=False)
         else:
             disp.text("WiFi Setup", 2, 2, 0xFFFF)
-            disp.text("Connect to:", 2, 20, 0xFFFF)
-            disp.text(AP_SSID, 2, 32, 0x07FF)
-            disp.text("Open browser:", 2, 52, 0xFFFF)
-            disp.text(AP_IP, 2, 64, 0x07E0)
+            disp.text("Connect to:", 2, 22, 0xFFFF)
+            disp.text(AP_SSID, 2, 36, 0x07FF)
+            disp.text("Open browser:", 2, 56, 0xFFFF)
+            disp.text(AP_IP, 2, 70, 0x07E0)
         disp.show()
 
     # ---- HTTP socket（TCP/80）----
