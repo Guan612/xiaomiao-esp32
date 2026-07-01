@@ -177,10 +177,7 @@ def main():
         ui.show_status(disp, easydisp, "Syncing time...", YELLOW)
         sync_ntp()
     else:
-        if wmgr.load_creds():
-            ui.show_status(disp, easydisp, "WiFi retrying...", RED)
-        else:
-            ui.show_status(disp, easydisp, "Offline AP starting", RED)
+        ui.show_status(disp, easydisp, "Offline AP starting", RED)
 
     # 天气 HTTPS 在当前固件/网络上不稳定；不在启动阶段阻塞主界面。
     weather_data = None
@@ -208,9 +205,11 @@ def main():
 
     keys = KeyNav()
 
-    # 在线用 STA 控制台；无 WiFi 凭据时才自动开 AP 配网。
-    # 已有凭据但临时连接失败时保持 STA，后台定时重连，避免 AP 模式关闭 STA。
+    # 在线用 STA 控制台；离线（无凭据 或 有凭据连不上）一律开 AP 配网，
+    # 并暂停后台 STA 重连——AP+STA 同开会让 AP 收不到包（见 captive_portal.py
+    # 头部说明）。offline_ap 标记 AP 是否在跑，供后台重连逻辑判断。
     web = None
+    offline_ap = False
     if wlan:
         try:
             ssid = wlan.config("essid")
@@ -218,9 +217,10 @@ def main():
             ssid = ""
         web = webui_mod.WebUI(disp, easydisp)
         web.set_state(ip=ip, ssid=ssid)
-    elif not wmgr.load_creds():
+    else:
         try:
             web = portal.CaptivePortalUI()
+            offline_ap = True
         except Exception as e:
             print("offline portal start fail:", e)
             web = None
@@ -373,7 +373,7 @@ def main():
         last_page = page
         gc.collect()
 
-        if not wlan and wmgr.load_creds() and time.ticks_diff(
+        if not wlan and not offline_ap and wmgr.load_creds() and time.ticks_diff(
                 time.ticks_ms(), next_wifi_retry) >= 0:
             print("[wifi] retry saved networks")
             wlan, ip = wmgr.ensure_connected(
