@@ -16,11 +16,14 @@ KEYS = {
 class KeyNav:
     """上拉按键边沿检测。返回刚按下的键名列表。"""
 
-    def __init__(self):
+    def __init__(self, long_ms=800):
         self.pins = {name: Pin(gpio, Pin.IN, Pin.PULL_UP)
                      for name, gpio in KEYS.items()}
         self.last = {name: 1 for name in KEYS}
+        self.down_ms = {name: 0 for name in KEYS}
+        self.long_sent = {name: False for name in KEYS}
         self.last_ms = 0
+        self.long_ms = long_ms
 
     def poll(self):
         now = time.ticks_ms()
@@ -32,5 +35,14 @@ class KeyNav:
             val = pin.value()
             if val == 0 and self.last.get(name, 1) == 1:
                 hits.append(name)
+                self.down_ms[name] = now
+                self.long_sent[name] = False
+            elif val == 0 and not self.long_sent.get(name, False):
+                if time.ticks_diff(now, self.down_ms.get(name, now)) >= self.long_ms:
+                    hits.append(name + "_long")
+                    self.long_sent[name] = True
+            elif val == 1 and self.last.get(name, 1) == 0:
+                self.down_ms[name] = 0
+                self.long_sent[name] = False
             self.last[name] = val
         return hits

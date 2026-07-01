@@ -21,7 +21,7 @@ r"""WiFi 太空人手表（含天气 + AP 配网 + 中文字库）。
   uv run python scripts/flash.py upload lib\watch_ui.py
   uv run python scripts/flash.py upload lib\keynav.py
   uv run python scripts/flash.py upload lib\weather.py
-  uv run python scripts/flash.py upload lib\netease_hot.py
+  uv run python scripts/flash.py upload lib\online_center.py
   uv run python scripts/flash.py upload lib\wifi_manager.py
   uv run python scripts/flash.py upload lib\captive_portal.py
   # 中文字库（务必传到板子 /font/ 目录）：
@@ -46,7 +46,7 @@ import wifi_manager as wmgr  # noqa: E402
 import captive_portal as portal  # noqa: E402
 import webui as webui_mod  # noqa: E402
 import local_sensor  # noqa: E402
-import netease_hot  # noqa: E402
+import online_center  # noqa: E402
 from keynav import KeyNav  # noqa: E402
 import watch_ui as ui  # noqa: E402
 
@@ -59,7 +59,7 @@ WHITE = 0xFFFF
 YELLOW = 0xFFE0
 RED = 0xF800
 
-PAGES = ("setup", "clock", "hot", "weather", "dice")
+PAGES = ("setup", "clock", "online", "weather", "dice")
 
 
 def init_display():
@@ -145,16 +145,19 @@ def main():
     wlan, ip = wmgr.ensure_connected(
         disp,
         setup_on_fail=False,
-        timeout_ms=6000,
-        retries=1,
-        scan=False,
-        max_creds=1,
+        timeout_ms=30000,
+        retries=3,
+        scan=True,
+        max_creds=3,
     )
     if wlan:
         ui.show_status(disp, easydisp, "Syncing time...", YELLOW)
         sync_ntp()
     else:
-        ui.show_status(disp, easydisp, "Offline AP starting", RED)
+        if wmgr.load_creds():
+            ui.show_status(disp, easydisp, "WiFi retrying...", RED)
+        else:
+            ui.show_status(disp, easydisp, "Offline AP starting", RED)
 
     # 天气 HTTPS 在当前固件/网络上不稳定；不在启动阶段阻塞主界面。
     weather_data = None
@@ -162,14 +165,17 @@ def main():
     last_ntp = time.time()
     last_weather = time.time()
     last_sensor = time.ticks_add(time.ticks_ms(), -2000)
+    next_wifi_retry = time.ticks_add(time.ticks_ms(), 30000)
     local_temp = ""
     page = "clock" if wlan else "setup"
-    pages = ("clock", "hot", "weather", "dice") if wlan else PAGES
-    hot_comment = None
-    hot_error = ""
-    hot_scroll = 0
+    pages = ("clock", "online", "weather", "dice") if wlan else PAGES
+    online_mode = "menu"
+    online_selected = 0
+    online_lines = []
+    online_error = ""
+    online_scroll = 0
     weather_error = ""
-    hot_dirty = True
+    online_dirty = True
     weather_dirty = True
     setup_dirty = True
     dice_dirty = True
@@ -177,7 +183,8 @@ def main():
 
     keys = KeyNav()
 
-    # 在线用 STA 控制台；离线自动开 AP 控制台，手机连热点即可配网。
+    # 在线用 STA 控制台；无 WiFi 凭据时才自动开 AP 配网。
+    # 已有凭据但临时连接失败时保持 STA，后台定时重连，避免 AP 模式关闭 STA。
     web = None
     if wlan:
         try:
@@ -186,7 +193,7 @@ def main():
             ssid = ""
         web = webui_mod.WebUI(disp, easydisp)
         web.set_state(ip=ip, ssid=ssid)
-    else:
+    elif not wmgr.load_creds():
         try:
             web = portal.CaptivePortalUI()
         except Exception as e:
@@ -196,45 +203,75 @@ def main():
     while True:
         key_hits = keys.poll()
         if key_hits:
-            if "down" in key_hits and page == "hot" and hot_comment:
-                max_scroll = max(0, len(ui.wrap_text(hot_comment, max_units=18)) - 5)
-                if hot_scroll < max_scroll:
-                    hot_scroll += 1
-                    hot_dirty = True
-            elif "up" in key_hits and page == "hot" and hot_comment:
-                if hot_scroll > 0:
-                    hot_scroll -= 1
-                    hot_dirty = True
+            if "b_long" in key_hits:
+                page = "clock"
+                online_mode = "menu"
+                online_dirty = True
+                weather_dirty = True
+                setup_dirty = True
+                dice_dirty = True
+                continue
+            if "down" in key_hits and page == "online":
+                if online_mode == "menu":
+                    online_selected = (online_selected + 1) % len(online_center.SERVICES)
+                    online_dirty = True
+                elif online_lines:
+                    wrapped = []
+                    for item in online_lines:
+                        wrapped.extend(ui.wrap_text(item, max_units=18))
+                    max_scroll = max(0, len(wrapped) - 5)
+                    if online_scroll < max_scroll:
+                        online_scroll += 1
+                        online_dirty = True
+            elif "up" in key_hits and page == "online":
+                if online_mode == "menu":
+                    online_selected = (online_selected - 1) % len(online_center.SERVICES)
+                    online_dirty = True
+                elif online_lines and online_scroll > 0:
+                    online_scroll -= 1
+                    online_dirty = True
             if "right" in key_hits:
                 page = next_page(page, 1, pages)
-                hot_dirty = True
+                online_dirty = True
                 weather_dirty = True
                 setup_dirty = True
                 dice_dirty = True
             if "left" in key_hits:
                 page = next_page(page, -1, pages)
-                hot_dirty = True
+                online_dirty = True
                 weather_dirty = True
                 setup_dirty = True
                 dice_dirty = True
             if "b" in key_hits:
-                page = "clock"
-            if page == "hot" and "a" in key_hits:
+                if page == "online" and online_mode == "detail":
+                    online_mode = "menu"
+                    online_dirty = True
+                else:
+                    page = "clock"
+            if page == "online" and "a" in key_hits:
+                if online_mode == "menu":
+                    online_mode = "detail"
+                    online_lines = []
+                    online_error = ""
+                    online_scroll = 0
+                service = online_center.SERVICES[online_selected]
                 if wlan:
-                    ui.draw_hot_comment(disp, easydisp, ip, True, hot_comment,
-                                     loading=True)
+                    ui.draw_online_detail(
+                        disp, easydisp, service.get("title", ""), online_lines,
+                        loading=True,
+                    )
                     gc.collect()
                     try:
-                        hot_comment = netease_hot.fetch()
-                        hot_error = "" if hot_comment else "热评获取失败"
-                        hot_scroll = 0
+                        online_lines = online_center.fetch(service)
+                        online_error = "" if online_lines else "获取失败"
+                        online_scroll = 0
                     except Exception as e:
-                        print("hot refresh fail:", e)
-                        hot_error = "热评获取失败"
-                    hot_dirty = True
+                        print("online refresh fail:", e)
+                        online_error = "获取失败"
+                    online_dirty = True
                 else:
-                    hot_error = "离线不可用"
-                    hot_dirty = True
+                    online_error = "离线不可用"
+                    online_dirty = True
             if page == "weather" and "a" in key_hits:
                 if wlan:
                     ui.draw_weather_page(disp, easydisp, ip, True, weather_data,
@@ -284,10 +321,18 @@ def main():
         elif page == "clock":
             ui.draw_clock(disp, easydisp, now, ip, wlan is not None,
                        weather_data, astro_frame, local_temp)
-        elif page == "hot" and hot_dirty:
-            ui.draw_hot_comment(disp, easydisp, ip, wlan is not None, hot_comment,
-                             err=hot_error, scroll=hot_scroll)
-            hot_dirty = False
+        elif page == "online" and online_dirty:
+            if online_mode == "menu":
+                ui.draw_online_menu(
+                    disp, easydisp, online_center.SERVICES, online_selected,
+                )
+            else:
+                service = online_center.SERVICES[online_selected]
+                ui.draw_online_detail(
+                    disp, easydisp, service.get("title", ""), online_lines,
+                    err=online_error, scroll=online_scroll,
+                )
+            online_dirty = False
         elif page == "weather" and weather_dirty:
             ui.draw_weather_page(disp, easydisp, ip, wlan is not None, weather_data,
                               err=weather_error)
@@ -296,6 +341,38 @@ def main():
             ui.draw_dice_page(disp, easydisp, dice.get("value", 1))
             dice_dirty = False
         gc.collect()
+
+        if not wlan and wmgr.load_creds() and time.ticks_diff(
+                time.ticks_ms(), next_wifi_retry) >= 0:
+            print("[wifi] retry saved networks")
+            wlan, ip = wmgr.ensure_connected(
+                disp,
+                setup_on_fail=False,
+                timeout_ms=30000,
+                retries=3,
+                scan=True,
+                max_creds=3,
+            )
+            next_wifi_retry = time.ticks_add(time.ticks_ms(), 60000)
+            if wlan:
+                print("[wifi] recovered:", ip)
+                pages = ("clock", "online", "weather", "dice")
+                page = "clock"
+                online_dirty = True
+                weather_dirty = True
+                setup_dirty = True
+                dice_dirty = True
+                try:
+                    ssid = wlan.config("essid")
+                except Exception:
+                    ssid = ""
+                web = webui_mod.WebUI(disp, easydisp)
+                web.set_state(ip=ip, ssid=ssid)
+                try:
+                    sync_ntp()
+                    last_ntp = time.time()
+                except Exception:
+                    pass
 
         # 定时 NTP（每小时）
         if wlan and (time.time() - last_ntp > 3600):

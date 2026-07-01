@@ -29,7 +29,7 @@ FILES = [
     ("lib/astro_icon.py",         "/lib/astro_icon.py"),
     ("lib/local_sensor.py",       "/lib/local_sensor.py"),
     ("lib/weather.py",            "/lib/weather.py"),
-    ("lib/netease_hot.py",        "/lib/netease_hot.py"),
+    ("lib/online_center.py",      "/lib/online_center.py"),
     ("lib/wifi_manager.py",       "/lib/wifi_manager.py"),
     ("lib/captive_portal.py",     "/lib/captive_portal.py"),
     ("lib/webui.py",              "/lib/webui.py"),

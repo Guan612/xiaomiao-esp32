@@ -161,6 +161,92 @@ def draw_hot_comment(disp, easydisp, ip, wifi_ok, text, loading=False, err="",
     disp.show()
 
 
+def draw_online_menu(disp, easydisp, services, selected=0):
+    """在线大全首页：上下移动，A 进入。"""
+    disp.fill(0)
+    disp.fill_rect(0, 0, 160, 14, BLUE)
+    disp.text("ONLINE", 2, 3, WHITE)
+    disp.text("A OK", 122, 3, YELLOW)
+    disp.hline(0, 18, 160, GRAY)
+
+    total = len(services)
+    if selected < 0:
+        selected = 0
+    if selected >= total:
+        selected = total - 1
+    top = selected - 2
+    if top < 0:
+        top = 0
+    if top > max(0, total - 5):
+        top = max(0, total - 5)
+
+    y = 24
+    for idx in range(top, min(total, top + 5)):
+        item = services[idx]
+        active = idx == selected
+        if active:
+            disp.fill_rect(0, y - 2, 160, 18, ORANGE)
+            disp.text(">", 3, y + 2, WHITE)
+            color = WHITE
+        else:
+            color = WHITE
+        title = item.get("title", "")[:8]
+        if easydisp:
+            easydisp.text(title, 18, y, color, show=False)
+        else:
+            disp.text(title[:15], 18, y + 2, color)
+        y += 20
+    disp.show()
+
+
+def draw_online_detail(disp, easydisp, title, lines, loading=False, err="",
+                       scroll=0):
+    """在线大全详情页：A 刷新，B 返回。"""
+    disp.fill(0)
+    disp.fill_rect(0, 0, 160, 14, BLUE)
+    disp.text("ON", 2, 3, WHITE)
+    disp.text("A fresh B back", 42, 3, YELLOW)
+
+    if loading:
+        if easydisp:
+            easydisp.text("加载中", 54, 50, CYAN, show=False)
+        else:
+            disp.text("loading...", 40, 54, CYAN)
+    elif err:
+        if easydisp:
+            easydisp.text(err, 8, 46, RED, show=False)
+            easydisp.text("按A重试", 8, 72, GRAY, show=False)
+        else:
+            disp.text(err[:18], 8, 50, RED)
+            disp.text("Press A retry", 8, 72, GRAY)
+    elif lines:
+        disp.hline(0, 18, 160, GRAY)
+        all_lines = []
+        for item in lines:
+            all_lines.extend(wrap_text(item, max_units=18))
+        max_scroll = max(0, len(all_lines) - 5)
+        if scroll < 0:
+            scroll = 0
+        if scroll > max_scroll:
+            scroll = max_scroll
+        y = 24
+        for line in all_lines[scroll:scroll + 5]:
+            if easydisp:
+                easydisp.text(line, 8, y, WHITE, show=False)
+            else:
+                disp.text(line[:18], 8, y, WHITE)
+            y += 18
+    else:
+        if easydisp:
+            easydisp.text(title[:7], 8, 34, CYAN, show=False)
+            easydisp.text("按A刷新", 34, 64, GRAY, show=False)
+        else:
+            disp.text(title[:16], 8, 36, CYAN)
+            disp.text("Press A refresh", 20, 64, GRAY)
+
+    disp.show()
+
+
 def draw_weather_page(disp, easydisp, ip, wifi_ok, weather_data,
                       loading=False, err=""):
     """天气页：只在用户手动刷新后显示数据。"""

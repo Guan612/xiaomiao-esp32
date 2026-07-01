@@ -103,7 +103,7 @@ uv run python scripts/flash.py upload lib\keynav.py
 uv run python scripts/flash.py upload lib\astro_icon.py
 uv run python scripts/flash.py upload lib\local_sensor.py
 uv run python scripts/flash.py upload lib\weather.py
-uv run python scripts/flash.py upload lib\netease_hot.py
+uv run python scripts/flash.py upload lib\online_center.py
 uv run python scripts/flash.py upload lib\wifi_manager.py
 uv run python scripts/flash.py upload lib\captive_portal.py
 uv run python scripts/flash.py upload lib\webui.py
@@ -118,11 +118,12 @@ uv run python scripts/flash.py upload font\noto_sans_sc_16px_gb2312.v3.bmf :/fon
 
 **按键界面：**
 
-- `右`：时钟 → 热评 → 天气 → 色子 → 时钟
+- `右`：时钟 → 在线大全 → 天气 → 色子 → 时钟
 - `左`：反向切换页面
-- `上 / 下`：滚动当前页面（目前热评页支持长评论滚动）
-- `B`：返回时钟页
-- `A`：在热评页刷新热评；在天气页刷新天气；在色子页掷骰
+- `上 / 下`：在线大全首页移动选择；在线详情滚动内容
+- `A`：在线大全首页进入；在线详情刷新；天气页刷新天气；色子页掷骰
+- `B`：在线详情返回在线大全首页；其他页面返回时钟页
+- `长按 B`：直接返回时钟页
 
 布局（160×128 横屏）：
 ```
@@ -151,8 +152,9 @@ uv run python scripts/flash.py upload font\noto_sans_sc_16px_gb2312.v3.bmf :/fon
 进入刷写模式、重启、添加/更新 WiFi，以及切换/删除已保存的 WiFi。
 AP 配网页也复用这套控制台界面。
 
-**热评数据源：** [yunapi.cn 网易云热评 API](https://yunapi.cn/api/sjwyyrp)。
-热评页需要联网，接口不可达时会提示获取失败。
+**在线大全数据源：** [UAPI 全网热榜](https://uapis.cn/docs/api-reference/get-misc-hotboard)
+和 [yunapi.cn 网易云热评 API](https://yunapi.cn/api/sjwyyrp)。
+在线大全需要联网，接口不可达时会提示获取失败。
 
 ## 📡 AP 配网（首次连接 WiFi）
 

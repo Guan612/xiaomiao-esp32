@@ -110,7 +110,19 @@ def connect_sta(ssid, password, timeout_ms=25000, retries=2):
 
     沿用 astronaut_watch.py 原 connect_wifi 的连接+超时等待模式。
     """
+    try:
+        ap = network.WLAN(network.AP_IF)
+        if ap.active():
+            ap.active(False)
+            time.sleep(0.5)
+    except Exception:
+        pass
     wlan = network.WLAN(network.STA_IF)
+    try:
+        wlan.active(False)
+        time.sleep(0.5)
+    except Exception:
+        pass
     wlan.active(True)
     for attempt in range(1, retries + 1):
         if wlan.isconnected():
